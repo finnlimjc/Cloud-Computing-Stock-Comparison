@@ -1,0 +1,258 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Lesson 5 - VPC networking lab. Builds a VPC with 2 public and 2 private subnets
+  across 2 Availability Zones, an Internet Gateway, a NAT Gateway, route tables,
+  a web security group, and an EC2 web server that runs the lab PHP app.
+  Region: us-east-1. NOTE: the NAT Gateway takes a few minutes to create, and the
+  web app needs a few more minutes after the stack finishes (user data still running).
+
+# ---------------------------------------------------------------------------
+# PARAMETERS - values you can choose when creating the stack
+# ---------------------------------------------------------------------------
+Parameters:
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional. Name of an existing EC2 key pair for SSH (the lab uses "vockey").
+      Leave empty to launch without a key pair - it is not needed to see the web app.
+
+# ---------------------------------------------------------------------------
+# CONDITIONS - only attach a key pair if one was provided
+# ---------------------------------------------------------------------------
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+Resources:
+  # -------------------------------------------------------------------------
+  # TASK 1: VPC - our own private virtual network (10.0.0.0/16 = 65,536 IPs).
+  # DNS hostnames must be enabled so the instance gets a public DNS name.
+  # -------------------------------------------------------------------------
+  LabVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: lab-vpc
+
+  # -------------------------------------------------------------------------
+  # INTERNET GATEWAY - the door between the VPC and the internet.
+  # It must be attached to the VPC before it can be used.
+  # -------------------------------------------------------------------------
+  LabInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: lab-igw
+
+  LabInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref LabVpc
+      InternetGatewayId: !Ref LabInternetGateway
+
+  # -------------------------------------------------------------------------
+  # SUBNETS - slices of the VPC address range, each inside one Availability Zone.
+  # Tasks 1 and 2: one public + one private subnet in AZ 1 (us-east-1a),
+  # and one public + one private subnet in AZ 2 (us-east-1b).
+  # "Public" vs "private" is decided by the route table, not the subnet itself.
+  # -------------------------------------------------------------------------
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVpc
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: lab-subnet-public1-us-east-1a
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: lab-subnet-private1-us-east-1a
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: lab-subnet-public2
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVpc
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: lab-subnet-private2
+
+  # -------------------------------------------------------------------------
+  # NAT GATEWAY - lets instances in PRIVATE subnets reach the internet
+  # (outbound only). It lives in a PUBLIC subnet and needs a fixed public
+  # address (Elastic IP).
+  # -------------------------------------------------------------------------
+  NatGatewayElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: LabInternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: lab-eip-nat-public1-us-east-1a
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayElasticIp.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: lab-nat-public1-us-east-1a
+
+  # -------------------------------------------------------------------------
+  # ROUTE TABLES - rules that say where network traffic goes.
+  # Public route table: internet traffic (0.0.0.0/0) -> Internet Gateway.
+  # Private route table: internet traffic (0.0.0.0/0) -> NAT Gateway.
+  # Each subnet must be associated with a route table.
+  # -------------------------------------------------------------------------
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVpc
+      Tags:
+        - Key: Name
+          Value: lab-rtb-public
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: LabInternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref LabInternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVpc
+      Tags:
+        - Key: Name
+          Value: lab-rtb-private1-us-east-1a
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # -------------------------------------------------------------------------
+  # TASK 3: SECURITY GROUP - a virtual firewall for the instance.
+  # Allows inbound HTTP (port 80) from anywhere on IPv4. Outbound traffic is
+  # allowed by default.
+  # -------------------------------------------------------------------------
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Web Security Group
+      GroupDescription: Enable HTTP access
+      VpcId: !Ref LabVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Permit web requests
+      Tags:
+        - Key: Name
+          Value: Web Security Group
+
+  # -------------------------------------------------------------------------
+  # TASK 4: EC2 WEB SERVER - launched in PUBLIC subnet 2 with a public IP.
+  # The user data script runs once as root at first boot: it installs Apache,
+  # PHP and MariaDB, downloads the lab app and starts the web server.
+  # DependsOn the public default route so the instance has internet access
+  # (needed to download the app) as soon as it boots.
+  # -------------------------------------------------------------------------
+  WebServer1:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicDefaultRoute
+    Properties:
+      ImageId: ami-0fef201115eefe936
+      InstanceType: t2.micro
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      NetworkInterfaces:
+        - DeviceIndex: "0"
+          SubnetId: !Ref PublicSubnet2
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref WebSecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # Install Apache Web Server and PHP
+          dnf install -y httpd wget php mariadb105-server unzip
+          # Download Lab files
+          wget https://aws-tc-largeobjects.s3.us-west-2.amazonaws.com/CUR-TF-100-ACCLFO-2/2-lab2-vpc/s3/lab-app.zip
+          unzip lab-app.zip -d /var/www/html/
+          # Turn on web server
+          chkconfig httpd on
+          service httpd start
+      Tags:
+        - Key: Name
+          Value: Web Server 1
+
+# ---------------------------------------------------------------------------
+# OUTPUTS - handy values shown on the stack's Outputs tab
+# ---------------------------------------------------------------------------
+Outputs:
+  WebServerURL:
+    Description: Open this URL in a browser to see the lab app (allow a few minutes after stack creation)
+    Value: !Sub "http://${WebServer1.PublicDnsName}"
+  WebServerPublicIp:
+    Description: Public IPv4 address of Web Server 1
+    Value: !GetAtt WebServer1.PublicIp
+  VpcId:
+    Description: ID of lab-vpc
+    Value: !Ref LabVpc
