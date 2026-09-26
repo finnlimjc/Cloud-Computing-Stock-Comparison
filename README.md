@@ -1,6 +1,21 @@
 ## Installation Instructions
 
-This project is a beginner-friendly Python notebook starter for working with financial data. The main "app" here is the notebook workflow: you install the libraries, open a notebook, and run the code cells.
+This project is a beginner-friendly starter for working with financial data. It has a Streamlit web app (`app.py`, with logic in `src/`) built from the code in the `notebooks/` folder.
+
+## Run the Streamlit app
+
+After installing the packages (steps below), run:
+
+```bash
+streamlit run app.py
+```
+
+Then enter a ticker (e.g. `MU`), choose an analysis type (filings, news, or stock price ratings) and click **Run**.
+
+- `app.py`: the Streamlit UI in the project root (the file you run).
+- `src/analysis.py`: the logic, with functions taken from the notebooks (`get_financials`, `get_news`, `get_price`, `get_analyst_ratings`).
+
+## Installation Instructions
 
 1. Open a terminal in the project folder.
 
@@ -36,7 +51,7 @@ This project is a beginner-friendly Python notebook starter for working with fin
 
 6. Open one of the files in the notebooks folder and run the cells from top to bottom.
 
-> This repo does not have a single web app file yet. Instead, the project is run by opening and executing the notebook examples.
+> You can also explore the raw code by opening the notebooks in Jupyter.
 
 ## Code Walkthrough
 
@@ -81,5 +96,7 @@ This is a good starter project for learning how Python notebooks connect to live
   .
   ├── lessons/          # Step-by-step course instructions
   ├── notebooks/        # Starter financial-data notebooks
+  ├── app.py            # Streamlit app (run this)
+  ├── src/              # Logic (analysis.py)
   ├── requirements.txt  # Python dependencies
   └── README.md         # Course overview
