@@ -13,7 +13,9 @@ streamlit run app.py
 Then enter a ticker (e.g. `MU`), choose an analysis type (filings, news, or stock price ratings) and click **Run**.
 
 - `app.py`: the Streamlit UI in the project root (the file you run).
-- `src/analysis.py`: the logic, with functions taken from the notebooks (`get_financials`, `get_news`, `get_price`, `get_analyst_ratings`).
+- `src/input_data.py`: data loading, with functions taken from the notebooks (`get_financials`, `get_news`, `get_price`, `get_analyst_ratings`, `get_price_history`).
+- `src/metrics.py`: metric calculations (`compute_drawdown`).
+- `src/plots.py`: Plotly charts (`plot_price_drawdown`).
 
 ## Installation Instructions
 
@@ -97,6 +99,6 @@ This is a good starter project for learning how Python notebooks connect to live
   ├── lessons/          # Step-by-step course instructions
   ├── notebooks/        # Starter financial-data notebooks
   ├── app.py            # Streamlit app (run this)
-  ├── src/              # Logic (analysis.py)
+  ├── src/              # Logic (input_data.py, metrics.py, plots.py)
   ├── requirements.txt  # Python dependencies
   └── README.md         # Course overview
