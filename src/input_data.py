@@ -1,6 +1,13 @@
+import os
 import re
+from pathlib import Path
+
 import pandas as pd
+import requests
 import yfinance as yf
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / "secrets.env")
 
 def clean_ticker(ticker:str) -> str:
     """Tidy up the user's input, e.g. ' mu ' -> 'MU'. Raises ValueError if empty."""
@@ -24,7 +31,7 @@ def get_financials(ticker:str) -> dict:
         raise ValueError(f"No financial statements found for {ticker}.")
     return result
 
-def get_news(ticker:str, limit:int=5) -> list:
+def get_yahoo_news(ticker:str, limit:int=5) -> list:
     """
     From notebooks/news.ipynb.
     Returns a list of dicts with 'title' and 'description'.
@@ -42,6 +49,37 @@ def get_news(ticker:str, limit:int=5) -> list:
                 "description":description[:200] or "No description"
             }
         )
+    if not articles:
+        raise ValueError(f"No news found for {ticker}.")
+    return articles
+
+def get_alpaca_news(ticker:str, limit:int=5) -> list:
+    """
+    Returns the raw Alpaca news articles (original schema) for the ticker.
+    Reads credentials from the ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables.
+    Source: https://docs.alpaca.markets/us/reference/news-3
+    """
+    ALPACA_NEWS_URL = "https://data.alpaca.markets/v1beta1/news"
+    api_key = os.environ.get("ALPACA_API_KEY")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY")
+    if not api_key or not secret_key:
+        raise ValueError("Alpaca credentials not set. Define ALPACA_API_KEY and ALPACA_SECRET_KEY.")
+    
+    headers = {
+        "APCA-API-KEY-ID":api_key,
+        "APCA-API-SECRET-KEY":secret_key
+    }
+    
+    params = {
+        "symbols":clean_ticker(ticker),
+        "limit":limit,
+        "sort":"desc"
+    }
+    
+    response = requests.get(ALPACA_NEWS_URL, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    
+    articles = response.json().get("news", [])
     if not articles:
         raise ValueError(f"No news found for {ticker}.")
     return articles
