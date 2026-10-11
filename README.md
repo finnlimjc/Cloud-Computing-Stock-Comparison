@@ -1,104 +1,67 @@
-## Installation Instructions
+# Cloud Computing Stock Comparison
 
-This project is a beginner-friendly starter for working with financial data. It has a Streamlit web app (`app.py`, with logic in `src/`) built from the code in the `notebooks/` folder.
+A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Enter a ticker (e.g. `MU`), pick an analysis type and click **Run**.
 
-## Run the Streamlit app
+| Analysis type | What it shows | Source |
+|---|---|---|
+| filings | Income statement, balance sheet and cash flow | Yahoo Finance (`yfinance`) |
+| news | Latest 5 headlines (hyperlinked) with date and summary | Alpaca News API |
+| stock price ratings | Current price and the last 10 analyst recommendations | Yahoo Finance (`yfinance`) |
+| price | 1-year price chart linked to a drawdown chart, plus max drawdown | Yahoo Finance (`yfinance`) |
 
-After installing the packages (steps below), run:
+## Setup
 
-```bash
-streamlit run app.py
-```
-
-Then enter a ticker (e.g. `MU`), choose an analysis type (filings, news, or stock price ratings) and click **Run**.
-
-- `app.py`: the Streamlit UI in the project root (the file you run).
-- `src/input_data.py`: data loading, with functions taken from the notebooks (`get_financials`, `get_news`, `get_price`, `get_analyst_ratings`, `get_price_history`).
-- `src/metrics.py`: metric calculations (`compute_drawdown`).
-- `src/plots.py`: Plotly charts (`plot_price_drawdown`).
-
-## Installation Instructions
-
-1. Open a terminal in the project folder.
+1. Create a virtual environment and install the packages.
 
    ```bash
-   cd /workspaces/smu-cce-starter
-   ```
-
-2. Create a virtual environment so your packages stay organized.
-
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. Upgrade pip and install the required packages.
-
-   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
    python -m pip install --upgrade pip
    python -m pip install -r requirements.txt
    ```
 
-4. If Jupyter is not already available, install it.
+2. **Set up `secrets.env`** (required for the `news` analysis).
 
-   ```bash
-   python -m pip install notebook
+   The news analysis calls the Alpaca News API, which needs API credentials. Get a free key pair from [Alpaca](https://alpaca.markets/), then create a file named `secrets.env` in the project root (next to `app.py`) containing:
+
+   ```env
+   ALPACA_API_KEY=your-alpaca-api-key
+   ALPACA_SECRET_KEY=your-alpaca-secret-key
    ```
 
-5. Start Jupyter and open a notebook.
+   - The file is loaded automatically by `src/input_data.py` via `python-dotenv`.
+   - `*.env` is listed in `.gitignore`, so it will not be committed. Never commit or share your keys.
+   - Without it, the `news` analysis shows "Alpaca credentials not set"; the other analysis types still work.
+
+3. Run the app.
 
    ```bash
-   jupyter notebook
+   streamlit run app.py
    ```
 
-6. Open one of the files in the notebooks folder and run the cells from top to bottom.
+## Project structure
 
-> You can also explore the raw code by opening the notebooks in Jupyter.
+```text
+.
+├── app.py                  # Streamlit UI (run this)
+├── src/
+│   ├── input_data.py       # Data loading: Yahoo Finance and Alpaca; loads secrets.env
+│   ├── transformation.py   # compute_drawdown, format_alpaca_news
+│   └── plots.py            # Plotly price and drawdown chart
+├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
+├── documentation/          # AWS architecture write-ups
+├── assets/                 # Architecture diagrams
+├── scripts/                # CloudFormation template
+├── secrets.env             # Your API keys (you create this; git-ignored)
+└── requirements.txt        # Python dependencies
+```
 
-## Code Walkthrough
+- `app.py` caches each lookup for 30 minutes and shows expected problems (empty ticker, no data) as warnings and anything else as errors.
+- The notebooks in `notebooks/` are the starting point the functions in `src/` were taken from. Run them with `jupyter notebook` if you want to explore the raw code.
 
-The main work in this repo lives in the notebooks folder. Each notebook is a small data task that uses Yahoo Finance to pull stock information.
+## AWS architecture
 
-- notebooks/stock_price_ratings.ipynb: gets a stock's current price and shows analyst recommendation data.
-- notebooks/news.ipynb: fetches recent news headlines and summaries for a stock ticker.
-- notebooks/filings.ipynb: pulls financial statements such as income statements, balance sheets, and cash flow.
+The dashboard is designed to run in its own VPC on AWS. These documents describe the design:
 
-Each notebook starts by importing the yfinance library, which connects to Yahoo Finance. The code then defines a function such as get_price(), get_news(), or get_financials(). After that, the notebook calls the function with a stock ticker such as MU or GOOG. The result is printed in the notebook so you can see the raw data in an easy-to-read format.
-
-From start to finish, the workflow is simple:
-
-1. Choose a stock ticker.
-2. Run the notebook cell that defines the function.
-3. Call the function with the ticker.
-4. View the output data in the notebook.
-5. Use that data to explore the stock, news, or financial statements.
-
-This is a good starter project for learning how Python notebooks connect to live data, cleanly organize code, and prepare for building a larger financial or cloud-based application later.
-
- # Cloud Computing for Economics: Starter Repo 
-
-  This repository contains the starter code and lesson materials for building a Python financial-data application and deploying it to AWS.
-
-  Students will use GitHub Codespaces, Python, Jupyter notebooks, Streamlit, Git, and AWS CloudFormation.
-
-  ## Learning outcomes
-
-  By the end of the course, you will be able to:
-
-   1.  Build and deploy an analytics application with a simple Front End / back-end (using AI)
-   2.  Host and share the application on a cloud platform (e.g., AWS EC2 or similar) so that others can access it securely over the web
-   3.  Integrate data sources and APIs into the app to enable interactive, real-time analytics
-   4.  Apply cloud architecture best practices, ensuring the app demonstrates scalability, performance efficiency, and basic security
-   5.  Showcase your work on GitHub as part of a personal portfolio, demonstrating practical cloud and analytics skills through a shareable, explorable repository
-
-  
-  ## Repository structure
-
-  ```text
-  .
-  ├── lessons/          # Step-by-step course instructions
-  ├── notebooks/        # Starter financial-data notebooks
-  ├── app.py            # Streamlit app (run this)
-  ├── src/              # Logic (input_data.py, metrics.py, plots.py)
-  ├── requirements.txt  # Python dependencies
-  └── README.md         # Course overview
+- [AWS IAM access architecture](documentation/aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
+- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/stock-research-dashboard-vpc.yaml](scripts/stock-research-dashboard-vpc.yaml).
