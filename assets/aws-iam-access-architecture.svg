@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 830" width="1600" height="830" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="aGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#495057"/></marker>
+    <marker id="aOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#E8590C"/></marker>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1971C2"/></marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2F9E44"/></marker>
+    <marker id="aPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9C36B5"/></marker>
+  </defs>
+
+  <rect width="1600" height="830" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="800" y="52" text-anchor="middle" font-size="30" font-weight="bold" fill="#212529">AWS Human Access Architecture — IAM Identity Center</text>
+
+  <!-- ===== LEFT: user groups ===== -->
+  <text x="40" y="150" font-size="18" font-weight="bold" fill="#212529">Workforce users (groups)</text>
+
+  <!-- Admins / DevOps -->
+  <rect x="40" y="170" width="360" height="130" rx="10" fill="#FFF4E6" stroke="#E8590C" stroke-width="2"/>
+  <rect x="40" y="170" width="10" height="130" rx="4" fill="#E8590C"/>
+  <text x="66" y="210" font-size="20" font-weight="bold" fill="#E8590C">Admins / DevOps</text>
+  <text x="66" y="240" font-size="14" fill="#495057">Full access in dev, operational in prod</text>
+  <text x="66" y="264" font-size="14" fill="#495057">Console for troubleshooting</text>
+
+  <!-- Developers -->
+  <rect x="40" y="320" width="360" height="130" rx="10" fill="#E7F5FF" stroke="#1971C2" stroke-width="2"/>
+  <rect x="40" y="320" width="10" height="130" rx="4" fill="#1971C2"/>
+  <text x="66" y="360" font-size="20" font-weight="bold" fill="#1971C2">Developers</text>
+  <text x="66" y="390" font-size="14" fill="#495057">Broad access in dev to explore and debug</text>
+  <text x="66" y="414" font-size="14" fill="#495057">Read-only in prod: logs, metrics</text>
+  <text x="66" y="434" font-size="14" fill="#495057">and config, no changes</text>
+
+  <!-- Auditors / Security -->
+  <rect x="40" y="470" width="360" height="130" rx="10" fill="#EBFBEE" stroke="#2F9E44" stroke-width="2"/>
+  <rect x="40" y="470" width="10" height="130" rx="4" fill="#2F9E44"/>
+  <text x="66" y="510" font-size="20" font-weight="bold" fill="#2F9E44">Auditors / Security</text>
+  <text x="66" y="540" font-size="14" fill="#495057">Read-only console access</text>
+  <text x="66" y="564" font-size="14" fill="#495057">Review configuration, logs and</text>
+  <text x="66" y="584" font-size="14" fill="#495057">security posture</text>
+
+  <!-- Finance -->
+  <rect x="40" y="620" width="360" height="130" rx="10" fill="#F8F0FC" stroke="#9C36B5" stroke-width="2"/>
+  <rect x="40" y="620" width="10" height="130" rx="4" fill="#9C36B5"/>
+  <text x="66" y="660" font-size="20" font-weight="bold" fill="#9C36B5">Finance</text>
+  <text x="66" y="690" font-size="14" fill="#495057">Billing console access</text>
+  <text x="66" y="714" font-size="14" fill="#495057">Management account only</text>
+  <text x="66" y="734" font-size="14" fill="#495057">No access to dev or prod</text>
+
+
+  <!-- Group → Identity Center arrows -->
+  <line x1="400" y1="235" x2="496" y2="235" stroke="#E8590C" stroke-width="3" marker-end="url(#aOrange)"/>
+  <line x1="400" y1="385" x2="496" y2="385" stroke="#1971C2" stroke-width="3" marker-end="url(#aBlue)"/>
+  <line x1="400" y1="535" x2="496" y2="535" stroke="#2F9E44" stroke-width="3" marker-end="url(#aGreen)"/>
+  <line x1="400" y1="685" x2="496" y2="685" stroke="#9C36B5" stroke-width="3" marker-end="url(#aPurple)"/>
+
+  <!-- ===== MIDDLE: IAM Identity Center ===== -->
+  <rect x="500" y="170" width="380" height="580" rx="12" fill="#FFF9DB" stroke="#E67700" stroke-width="2.5"/>
+  <text x="690" y="208" text-anchor="middle" font-size="22" font-weight="bold" fill="#212529">AWS IAM Identity Center</text>
+  <text x="690" y="231" text-anchor="middle" font-size="14" fill="#495057">Single Sign-On (SSO) for the whole organization</text>
+
+  <rect x="525" y="250" width="330" height="72" rx="8" fill="#FFFFFF" stroke="#E67700" stroke-width="1.5"/>
+  <text x="690" y="279" text-anchor="middle" font-size="16" font-weight="bold" fill="#212529">AWS access portal</text>
+  <text x="690" y="304" text-anchor="middle" font-size="14" fill="#495057">Sign-in + MFA → console or CLI</text>
+
+  <text x="525" y="357" font-size="15" font-weight="bold" fill="#212529">Permission sets</text>
+  <rect x="525" y="370" width="330" height="40" rx="6" fill="#FFFFFF" stroke="#ADB5BD"/>
+  <text x="545" y="396" font-size="15" fill="#212529">AdministratorAccess</text>
+  <rect x="525" y="420" width="330" height="40" rx="6" fill="#FFFFFF" stroke="#ADB5BD"/>
+  <text x="545" y="446" font-size="15" fill="#212529">DevOpsOperations</text>
+  <rect x="525" y="470" width="330" height="40" rx="6" fill="#FFFFFF" stroke="#ADB5BD"/>
+  <text x="545" y="496" font-size="15" fill="#212529">PowerUserAccess</text>
+  <rect x="525" y="520" width="330" height="40" rx="6" fill="#FFFFFF" stroke="#ADB5BD"/>
+  <text x="545" y="546" font-size="15" fill="#212529">ReadOnlyAccess</text>
+  <rect x="525" y="570" width="330" height="40" rx="6" fill="#FFFFFF" stroke="#ADB5BD"/>
+  <text x="545" y="596" font-size="15" fill="#212529">Billing</text>
+
+  <text x="690" y="660" text-anchor="middle" font-size="14" font-weight="bold" fill="#343A40">Short-lived credentials only</text>
+  <text x="690" y="690" text-anchor="middle" font-size="13" fill="#495057">No long-lived IAM users or access keys</text>
+
+  <!-- Identity Center → accounts arrows -->
+  <line x1="880" y1="242" x2="976" y2="242" stroke="#495057" stroke-width="2.5" marker-end="url(#aGray)"/>
+  <line x1="880" y1="435" x2="976" y2="435" stroke="#495057" stroke-width="2.5" marker-end="url(#aGray)"/>
+  <line x1="880" y1="665" x2="976" y2="665" stroke="#495057" stroke-width="2.5" marker-end="url(#aGray)"/>
+  <text x="930" y="232" text-anchor="middle" font-size="12" fill="#495057">assigns</text>
+  <text x="930" y="425" text-anchor="middle" font-size="12" fill="#495057">assigns</text>
+  <text x="930" y="655" text-anchor="middle" font-size="12" fill="#495057">assigns</text>
+
+  <!-- ===== RIGHT: AWS Organization ===== -->
+  <rect x="980" y="125" width="580" height="665" rx="14" fill="#F8F9FA" stroke="#495057" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="1000" y="157" font-size="18" font-weight="bold" fill="#212529">AWS Organization</text>
+
+  <!-- Management account -->
+  <rect x="1000" y="175" width="540" height="135" rx="10" fill="#FFFFFF" stroke="#9C36B5" stroke-width="2"/>
+  <text x="1020" y="205" font-size="18" font-weight="bold" fill="#212529">Management account</text>
+  <text x="1020" y="227" font-size="13" fill="#495057">Organizations · Identity Center · consolidated billing</text>
+  <rect x="1020" y="250" width="170" height="32" rx="16" fill="#9C36B5"/>
+  <text x="1105" y="271" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Finance</text>
+  <line x1="1198" y1="266" x2="1238" y2="266" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="272" font-size="16" font-weight="bold" fill="#212529">Billing</text>
+  <text x="1525" y="272" text-anchor="end" font-size="13" fill="#868E96">billing only</text>
+
+  <!-- Dev account -->
+  <rect x="1000" y="330" width="540" height="210" rx="10" fill="#FFFFFF" stroke="#1971C2" stroke-width="2"/>
+  <text x="1020" y="360" font-size="18" font-weight="bold" fill="#212529">Dev account</text>
+  <text x="1020" y="382" font-size="13" fill="#495057">Explore, build and debug</text>
+  <rect x="1020" y="400" width="170" height="32" rx="16" fill="#E8590C"/>
+  <text x="1105" y="421" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Admins / DevOps</text>
+  <line x1="1198" y1="416" x2="1238" y2="416" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="422" font-size="16" font-weight="bold" fill="#212529">AdministratorAccess</text>
+  <text x="1525" y="422" text-anchor="end" font-size="13" fill="#868E96">full</text>
+  <rect x="1020" y="446" width="170" height="32" rx="16" fill="#1971C2"/>
+  <text x="1105" y="467" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Developers</text>
+  <line x1="1198" y1="462" x2="1238" y2="462" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="468" font-size="16" font-weight="bold" fill="#212529">PowerUserAccess</text>
+  <text x="1525" y="468" text-anchor="end" font-size="13" fill="#868E96">broad</text>
+  <rect x="1020" y="492" width="170" height="32" rx="16" fill="#2F9E44"/>
+  <text x="1105" y="513" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Auditors / Security</text>
+  <line x1="1198" y1="508" x2="1238" y2="508" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="514" font-size="16" font-weight="bold" fill="#212529">ReadOnlyAccess</text>
+  <text x="1525" y="514" text-anchor="end" font-size="13" fill="#868E96">read-only</text>
+
+  <!-- Prod account -->
+  <rect x="1000" y="560" width="540" height="210" rx="10" fill="#FFFFFF" stroke="#C92A2A" stroke-width="2"/>
+  <text x="1020" y="590" font-size="18" font-weight="bold" fill="#212529">Prod account</text>
+  <text x="1020" y="612" font-size="13" fill="#495057">Changes go through infrastructure-as-code</text>
+  <rect x="1020" y="630" width="170" height="32" rx="16" fill="#E8590C"/>
+  <text x="1105" y="651" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Admins / DevOps</text>
+  <line x1="1198" y1="646" x2="1238" y2="646" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="652" font-size="16" font-weight="bold" fill="#212529">DevOpsOperations</text>
+  <text x="1525" y="652" text-anchor="end" font-size="13" fill="#868E96">operational</text>
+  <rect x="1020" y="676" width="170" height="32" rx="16" fill="#1971C2"/>
+  <text x="1105" y="697" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Developers</text>
+  <line x1="1198" y1="692" x2="1238" y2="692" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="698" font-size="16" font-weight="bold" fill="#212529">ReadOnlyAccess</text>
+  <text x="1525" y="698" text-anchor="end" font-size="13" fill="#868E96">read-only</text>
+  <rect x="1020" y="722" width="170" height="32" rx="16" fill="#2F9E44"/>
+  <text x="1105" y="743" text-anchor="middle" font-size="14" font-weight="bold" fill="#FFFFFF">Auditors / Security</text>
+  <line x1="1198" y1="738" x2="1238" y2="738" stroke="#495057" stroke-width="2" marker-end="url(#aGray)"/>
+  <text x="1250" y="744" font-size="16" font-weight="bold" fill="#212529">ReadOnlyAccess</text>
+  <text x="1525" y="744" text-anchor="end" font-size="13" fill="#868E96">read-only</text>
+
+</svg>
