@@ -1,63 +1,68 @@
 # Cloud Computing Stock Comparison
 
-A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Enter a ticker (e.g. `MU`), pick an analysis type and click **Run**.
+A one-page Streamlit dashboard for SMU students learning to compare stock-price history. Compare two tickers or leave Stock B empty to view one stock. The overview includes price and volatility charts, recession shading, return/risk metrics, plain-language context, and recent Alpaca news when credentials are configured.
 
-| Analysis type | What it shows | Source |
-|---|---|---|
-| filings | Income statement, balance sheet and cash flow | Yahoo Finance (`yfinance`) |
-| news | Latest 5 headlines (hyperlinked) with date and summary | Alpaca News API |
-| stock price ratings | Current price and the last 10 analyst recommendations | Yahoo Finance (`yfinance`) |
-| price | 1-year price chart linked to a drawdown chart, plus max drawdown | Yahoo Finance (`yfinance`) |
+Choose a quick time range of 1, 5, 10, or 20 years, or select **Custom** to pick inclusive start and end dates. Custom ranges must be at least two months long, and the earliest selectable start date is 20 years before today.
 
-## Setup
+The dashboard uses Yahoo Finance for historical prices and the Alpaca News API for headlines. Historical prices and news are cached for 30 minutes; the current price is cached for 60 seconds and refreshes while the US market is open (weekdays, 9:30 a.m.–4:00 p.m. Eastern, holidays ignored). When the market is closed, the dashboard shows the most recent closing price. Recession data is cached for one day. A 0% risk-free rate is used for the Sharpe ratio. The page is educational and does not provide investment advice.
 
-1. Create a virtual environment and install the packages.
+## Run in GitHub Codespaces
 
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   python -m pip install --upgrade pip
-   python -m pip install -r requirements.txt
-   ```
+In the project root, run:
 
-2. **Set up `secrets.env`** (required for the `news` analysis).
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-   The news analysis calls the Alpaca News API, which needs API credentials. Get a free key pair from [Alpaca](https://alpaca.markets/), then create a file named `secrets.env` in the project root (next to `app.py`) containing:
+To enable news, create `secrets.env` in the project root with your Alpaca News API credentials:
 
-   ```env
-   ALPACA_API_KEY=your-alpaca-api-key
-   ALPACA_SECRET_KEY=your-alpaca-secret-key
-   ```
+```env
+ALPACA_API_KEY=your-alpaca-api-key
+ALPACA_SECRET_KEY=your-alpaca-secret-key
+```
 
-   - The file is loaded automatically by `src/input_data.py` via `python-dotenv`.
-   - `*.env` is listed in `.gitignore`, so it will not be committed. Never commit or share your keys.
-   - Without it, the `news` analysis shows "Alpaca credentials not set"; the other analysis types still work.
+Without the credentials, the dashboard still loads prices, charts, and metrics; the news panel explains that news is unavailable. `secrets.env` is ignored by Git. Never commit API keys.
 
-3. Run the app.
+## Run on EC2
 
-   ```bash
-   streamlit run app.py
-   ```
+On an EC2 instance with Python installed, clone the repository and run the same setup commands from the project root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py --server.address 0.0.0.0
+```
+
+Configure `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` in the instance environment or in a protected `secrets.env` file. Allow access to the Streamlit port only from the intended network in the instance security group. The app saves analyses to `analyses-data/` under the project root on the existing disk; it does not require CloudFormation changes or additional storage.
+
+## Verify Save Analysis and Previous Analyses
+
+1. Start the app and click **Run** with one or two valid tickers.
+2. Click **Save Analysis** in the sidebar. A success message should appear and a Markdown file should be created in the project-root `analyses-data/` folder.
+3. The saved item should appear under **Previous Analyses**. Select it and click **Show** to view it in a pop-up.
+4. Restart the app and confirm the file remains listed. The folder is intentionally ignored by Git.
 
 ## Project structure
 
 ```text
 .
-├── app.py                  # Streamlit UI (run this)
+├── app.py                  # One-page Streamlit dashboard
+├── .streamlit/config.toml  # SMU-inspired Streamlit theme
 ├── src/
-│   ├── input_data.py       # Data loading: Yahoo Finance and Alpaca; loads secrets.env
-│   ├── transformation.py   # compute_drawdown, format_alpaca_news
-│   └── plots.py            # Plotly price and drawdown chart
-├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
-├── documentation/          # AWS architecture write-ups
-├── assets/                 # Architecture diagrams
-├── scripts/                # CloudFormation template
-├── secrets.env             # Your API keys (you create this; git-ignored)
+│   ├── input_data.py       # Yahoo Finance, Alpaca news, and cached FRED data
+│   ├── transformation.py   # Dashboard calculations and existing data helpers
+│   ├── plots.py            # Dashboard charts and existing price/drawdown chart
+│   └── storage.py          # Save and retrieve Markdown analyses
+├── analyses-data/          # Saved analyses (created automatically; Git-ignored)
+├── secrets.env             # Optional Alpaca credentials (you create this; Git-ignored)
 └── requirements.txt        # Python dependencies
 ```
 
-- `app.py` caches each lookup for 30 minutes and shows expected problems (empty ticker, no data) as warnings and anything else as errors.
-- The notebooks in `notebooks/` are the starting point the functions in `src/` were taken from. Run them with `jupyter notebook` if you want to explore the raw code.
+The existing data functions for financial statements, Yahoo Finance news, and analyst ratings remain in `src/input_data.py`; this overview page does not display filings or analyst-rating charts.
 
 ## AWS architecture
 

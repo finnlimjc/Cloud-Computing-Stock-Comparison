@@ -1,13 +1,21 @@
+from __future__ import annotations
+
+import logging
 import os
 import re
+from datetime import date, timedelta
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
 import requests
+import streamlit as st
 import yfinance as yf
 from dotenv import load_dotenv
+from src import transformation
 
 load_dotenv(Path(__file__).resolve().parent.parent / "secrets.env")
+LOGGER = logging.getLogger(__name__)
 
 def clean_ticker(ticker:str) -> str:
     """Tidy up the user's input, e.g. ' mu ' -> 'MU'. Raises ValueError if empty."""
@@ -94,6 +102,20 @@ def get_price(ticker:str) -> float:
         raise ValueError(f"No current price found for {ticker}.")
     return price
 
+def get_latest_price(ticker:str, market_open:bool) -> float:
+    """Fetch the latest intraday price while open, or most recent close while shut."""
+    stock = yf.Ticker(clean_ticker(ticker))
+    if market_open:
+        history = stock.history(period="1d", interval="1m", prepost=False)
+    else:
+        history = stock.history(period="5d", interval="1d", prepost=False)
+    if history.empty or "Close" not in history:
+        raise ValueError(f"No latest price found for {ticker}.")
+    price = history["Close"].dropna()
+    if price.empty:
+        raise ValueError(f"No latest price found for {ticker}.")
+    return float(price.iloc[-1])
+
 def get_analyst_ratings(ticker:str) -> pd.DataFrame:
     """
     From notebooks/stock_price_ratings.ipynb. Returns a DataFrame of recommendations.
@@ -105,13 +127,45 @@ def get_analyst_ratings(ticker:str) -> pd.DataFrame:
     ratings = recs.tail(10)
     return ratings
 
-def get_price_history(ticker:str, period:str="1y") -> pd.Series:
-    """Returns daily closing prices indexed by (timezone-naive) date."""
+def get_price_history(ticker:str, start_date:date, end_date:date) -> pd.Series:
+    """Returns daily closing prices for the inclusive date range."""
     stock = yf.Ticker(clean_ticker(ticker))
-    history = stock.history(period=period)
+    history = stock.history(start=start_date, end=end_date + timedelta(days=1))
     if history.empty:
         raise ValueError(f"No price history found for {ticker}.")
     prices = history["Close"]
     prices.index = prices.index.tz_localize(None) #plotly renders tz-aware dates shifted to UTC
     prices.index.name = "Date"
+    prices = prices.loc[
+        (prices.index >= pd.Timestamp(start_date))
+        & (prices.index <= pd.Timestamp(end_date))
+    ]
+    if prices.empty:
+        raise ValueError(f"No price history found for {ticker} in the selected date range.")
     return prices
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_recession_periods() -> list[dict]:
+    """Load monthly US recession periods from FRED, with NBER dates as a fallback."""
+    fallback = [
+        {"start": pd.Timestamp("2007-12-01"), "end": pd.Timestamp("2009-06-30"), "label": "2008 Financial Crisis"},
+        {"start": pd.Timestamp("2020-02-01"), "end": pd.Timestamp("2020-04-30"), "label": "COVID-19"},
+    ]
+    try:
+        response = requests.get(
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=USREC",
+            timeout=10,
+        )
+        response.raise_for_status()
+        frame = pd.read_csv(StringIO(response.text))
+        date_column, value_column = frame.columns[:2]
+        frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
+        frame[value_column] = pd.to_numeric(frame[value_column], errors="coerce")
+        periods = transformation.recession_periods_from_series(
+            pd.Series(frame[value_column].values, index=frame[date_column])
+        )
+        return periods or fallback
+    except Exception as error:
+        LOGGER.warning("Could not load FRED recession data; using NBER dates: %s", error)
+        return fallback
