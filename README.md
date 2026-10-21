@@ -39,6 +39,10 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
    streamlit run app.py
    ```
 
+## Save and View Analyses
+
+After running an analysis for a ticker, click **Save Analysis** in the sidebar to save a Markdown report. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
+
 ## Project structure
 
 ```text
