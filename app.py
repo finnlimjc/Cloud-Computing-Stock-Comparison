@@ -39,21 +39,60 @@ METRIC_HELP = {
 
 @st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
 def load_prices(ticker:str, start_date:date, end_date:date) -> pd.Series:
+    """Load historical prices.
+
+    Inputs:
+    - ticker: stock symbol
+    - start_date: inclusive first date
+    - end_date: inclusive last date
+
+    Outputs:
+    - Daily closing prices
+    """
+    # This part delegates the request to the price-history provider.
     return input_data.get_price_history(ticker, start_date, end_date)
 
 @st.cache_data(ttl=LATEST_PRICE_TTL, show_spinner=False)
 def load_latest_price(ticker:str, market_open:bool) -> tuple[float, datetime]:
+    """Load the latest price and its fetch time.
+
+    Inputs:
+    - ticker: stock symbol
+    - market_open: whether regular US trading is open
+
+    Outputs:
+    - Latest price and UTC fetch time
+    """
+    # This part fetches the price and records when it was fetched.
     price = input_data.get_latest_price(ticker, market_open)
     return price, datetime.now(timezone.utc)
 
 
 @st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
 def load_news(ticker:str) -> list[dict]:
+    """Load recent news for a ticker.
+
+    Inputs:
+    - ticker: stock symbol
+
+    Outputs:
+    - Recent news articles
+    """
+    # This part requests the five newest news articles.
     return input_data.get_alpaca_news(ticker, limit=5)
 
 def us_market_is_open(now:datetime | None=None) -> bool:
-    """Check regular US market hours, without accounting for market holidays."""
+    """Check regular US market hours, without accounting for market holidays.
+
+    Inputs:
+    - now: optional time to check
+
+    Outputs:
+    - Whether the market is open
+    """
+    # This part selects the time in the US Eastern timezone.
     eastern_now = (now or datetime.now(NEW_YORK)).astimezone(NEW_YORK)
+    # This part checks weekdays and regular trading hours.
     return (
         eastern_now.weekday() < 5
         and (eastern_now.hour, eastern_now.minute) >= (9, 30)
@@ -67,16 +106,30 @@ def analyze_ticker(
     start_date:date,
     end_date:date,
 ) -> tuple[dict | None, str | None]:
+    """Load and summarize one stock's price history.
+
+    Inputs:
+    - role: stock's comparison role
+    - ticker_input: user-entered symbol
+    - start_date: inclusive first date
+    - end_date: inclusive last date
+
+    Outputs:
+    - Stock analysis and optional warning
+    """
+    # This part handles an empty optional ticker.
     if not ticker_input.strip():
         if role == "A":
             return None, "Stock A: Please enter a ticker symbol."
         return None, None
     try:
+        # This part loads and validates the ticker's price history.
         ticker = input_data.clean_ticker(ticker_input)
         prices = load_prices(ticker, start_date, end_date)
         prices = prices.dropna()
         if prices.empty:
             raise ValueError("No price history found.")
+        # This part assembles the stock's prices and metrics.
         return {
             "role": role,
             "ticker": ticker,
@@ -86,40 +139,26 @@ def analyze_ticker(
             "metrics": transformation.summarize_prices(prices),
         }, None
     except (ValueError, KeyError) as error:
+        # This part reports expected ticker or data lookup errors.
         return None, f"{ticker_input.strip().upper()}: {error}"
     except Exception as error:
+        # This part reports unexpected data loading errors.
         return None, f"{ticker_input.strip().upper()}: data could not be loaded ({error})"
 
 
-def load_analysis(
-    ticker_a:str,
-    ticker_b:str,
-    start_date:date,
-    end_date:date,
-    range_label:str,
-) -> tuple[dict, list[str]]:
-    stocks = {}
-    warnings = []
-    for role, ticker_input in (("A", ticker_a), ("B", ticker_b)):
-        stock, warning = analyze_ticker(role, ticker_input, start_date, end_date)
-        if stock:
-            stocks[role] = stock
-        if warning:
-            warnings.append(warning)
+def collect_news(stocks:dict) -> tuple[list[dict], str]:
+    """Collect recent articles for successfully loaded stocks.
 
-    if not stocks:
-        return {}, warnings
+    Inputs:
+    - stocks: loaded stock analyses keyed by comparison role
 
-    if len(stocks) == 2:
-        aligned_prices = transformation.common_start_prices({
-            role: stock["prices"] for role, stock in stocks.items()
-        })
-        for role, stock in stocks.items():
-            stock["prices"] = aligned_prices[role]
-            stock["metrics"] = transformation.summarize_prices(stock["prices"])
-
+    Outputs:
+    - Newest-first news articles and a combined error message
+    """
+    # This part initializes article and error collections.
     news = []
     news_errors = []
+    # This part collects each stock's recent articles.
     for stock in stocks.values():
         try:
             for article in load_news(stock["ticker"]):
@@ -133,11 +172,65 @@ def load_analysis(
                 })
         except Exception as error:
             news_errors.append(str(error))
-    def news_timestamp(article:dict) -> int:
-        timestamp = pd.to_datetime(article["created_at"], utc=True, errors="coerce")
-        return int(timestamp.value) if not pd.isna(timestamp) else 0
-
+    # This part orders articles by timestamp and combines loading errors.
     news.sort(key=news_timestamp, reverse=True)
+    return news, "; ".join(news_errors)
+
+
+def news_timestamp(article:dict) -> int:
+    """Return an article timestamp as an integer sort key.
+
+    Inputs:
+    - article: normalized news article
+
+    Outputs:
+    - UTC timestamp value, or zero when invalid
+    """
+    # This part parses the timestamp and handles missing or invalid dates.
+    timestamp = pd.to_datetime(article["created_at"], utc=True, errors="coerce")
+    return int(timestamp.value) if not pd.isna(timestamp) else 0
+
+
+def load_analysis(
+    ticker_a:str, ticker_b:str, start_date:date, end_date:date, range_label:str,
+) -> tuple[dict, list[str]]:
+    """Load available stock analyses and their news.
+
+    Inputs:
+    - ticker_a: first user-entered symbol
+    - ticker_b: optional second user-entered symbol
+    - start_date: inclusive first date
+    - end_date: inclusive last date
+    - range_label: selected quick or custom range
+
+    Outputs:
+    - Analysis result and ticker warnings
+    """
+    # This part loads each requested ticker and records any warning.
+    stocks = {}
+    warnings = []
+    for role, ticker_input in (("A", ticker_a), ("B", ticker_b)):
+        stock, warning = analyze_ticker(role, ticker_input, start_date, end_date)
+        if stock:
+            stocks[role] = stock
+        if warning:
+            warnings.append(warning)
+
+    if not stocks:
+        return {}, warnings
+
+    # This part aligns both series to their shared start when comparing stocks.
+    if len(stocks) == 2:
+        aligned_prices = transformation.common_start_prices({
+            role: stock["prices"] for role, stock in stocks.items()
+        })
+        for role, stock in stocks.items():
+            stock["prices"] = aligned_prices[role]
+            stock["metrics"] = transformation.summarize_prices(stock["prices"])
+
+    # This part gathers the news and its optional error summary.
+    news, news_error = collect_news(stocks)
+    # This part assembles the dashboard result.
     result = {
         "stocks": stocks,
         "start_date": start_date,
@@ -146,12 +239,21 @@ def load_analysis(
         "range_type": "Custom" if range_label == "Custom" else "quick option",
         "comparison": len(stocks) == 2,
         "news": news,
-        "news_error": "; ".join(news_errors),
+        "news_error": news_error,
     }
     return result, warnings
 
 
 def plain_words(result:dict) -> str:
+    """Create a plain-language summary of the loaded stock data.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - Plain-language comparison or single-stock summary
+    """
+    # This part selects the single-stock or comparison summary path.
     stocks = result["stocks"]
     range_label = (
         f"{result['start_date']:%Y-%m-%d} to {result['end_date']:%Y-%m-%d}"
@@ -172,6 +274,16 @@ def plain_words(result:dict) -> str:
 
 
 def metric_value(name:str, value:float) -> str:
+    """Format a metric for display.
+
+    Inputs:
+    - name: metric label
+    - value: numeric metric value
+
+    Outputs:
+    - Formatted metric text
+    """
+    # This part applies the display format for each percentage or price metric.
     if name == "Price at end of range":
         return f"${value:,.2f}"
     if name == "Return over period":
@@ -182,6 +294,17 @@ def metric_value(name:str, value:float) -> str:
 
 
 def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> str:
+    """Build a Markdown report for a dashboard analysis.
+
+    Inputs:
+    - result: dashboard analysis result
+    - sentence: plain-language summary
+    - created_at: report creation time
+
+    Outputs:
+    - Complete Markdown report
+    """
+    # This part derives the report title and range description.
     stocks = result["stocks"]
     comparison = result["comparison"]
     tickers = [stock["ticker"] for stock in stocks.values()]
@@ -193,6 +316,7 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
         else f"{result['range_label']} quick option"
     )
     latest_prices = result.get("latest_prices", {})
+    # This part creates report metadata and the metrics table header.
     lines = [
         f"# {title}",
         "",
@@ -211,6 +335,7 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
         "| Ticker | Latest price (today) | Price at end of range | Return over period | Max drawdown | Sharpe ratio | Average volatility |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
+    # This part adds a metrics row for every stock.
     for stock in stocks.values():
         metrics = stock["metrics"]
         latest = latest_prices.get(stock["ticker"])
@@ -227,6 +352,7 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
             f"{metrics['Return over period']:+.1%} | {metrics['Max drawdown']:.1%} | "
             f"{metrics['Sharpe ratio']:.2f} | {metrics['Average volatility']:.1%} |"
         )
+    # This part appends the available news headlines.
     lines.extend(["", "## Latest news", ""])
     if result["news"]:
         for article in result["news"]:
@@ -241,11 +367,21 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
 
 
 def analysis_label(path:Path) -> str:
+    """Create a readable label for a saved analysis path.
+
+    Inputs:
+    - path: saved analysis path
+
+    Outputs:
+    - Human-readable analysis label
+    """
+    # This part parses names and timestamp from the saved filename.
     match = re.fullmatch(
         r"(.+)_(?:overview|single)_(\d{8}-\d{6})(?:_\d+)?",
         path.stem,
     )
     if match:
+        # This part formats the filename's timestamp and ticker names.
         names, timestamp = match.groups()
         created = datetime.strptime(timestamp, "%Y%m%d-%H%M%S")
         date_format = (
@@ -260,14 +396,25 @@ def analysis_label(path:Path) -> str:
 
 
 def saved_analysis_details(markdown:str) -> str:
+    """Extract a short details line from saved report metadata.
+
+    Inputs:
+    - markdown: saved analysis report
+
+    Outputs:
+    - Compact metadata description
+    """
+    # This part reads metadata fields from the Markdown report.
     metadata = {}
     for line in markdown.splitlines():
         match = re.match(r"^- ([^:]+):\s*(.*)$", line)
         if match:
             metadata[match.group(1)] = match.group(2)
+    # This part formats the analysis type and range details.
     analysis_type = metadata.get("Analysis type", "Unavailable")
     if analysis_type != "Unavailable":
         analysis_type = analysis_type.title()
+    # This part assembles the metadata fields in display order.
     details = [
         f"Tickers: {metadata.get('Tickers', 'Unavailable')}",
         f"Analysis type: {analysis_type}",
@@ -283,6 +430,15 @@ def saved_analysis_details(markdown:str) -> str:
 
 @st.dialog("Previous analysis", width="large")
 def show_saved_analysis(markdown:str) -> None:
+    """Display a saved Markdown analysis in a dialog.
+
+    Inputs:
+    - markdown: saved analysis report
+
+    Outputs:
+    - None
+    """
+    # This part styles long report content for the dialog.
     st.markdown(
         """
         <style>
@@ -298,10 +454,20 @@ def show_saved_analysis(markdown:str) -> None:
         """,
         unsafe_allow_html=True,
     )
+    # This part displays the saved report.
     st.markdown(markdown)
 
 
 def render_metrics(result:dict) -> None:
+    """Render the analysis metric panels.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - None
+    """
+    # This part selects the metrics applicable to the date range.
     metric_names = ["Return over period", "Max drawdown", "Sharpe ratio"]
     if result["end_date"] < datetime.now().date():
         metric_names.append("Price at end of range")
@@ -329,6 +495,15 @@ def render_metrics(result:dict) -> None:
                             )
 
 def render_latest_price_card(result:dict) -> None:
+    """Render and periodically refresh latest stock prices.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - None
+    """
+    # This part sets the refresh schedule based on market hours.
     scheduled_market_open = us_market_is_open()
 
     @st.fragment(
@@ -336,9 +511,19 @@ def render_latest_price_card(result:dict) -> None:
         key="latest-price-card",
     )
     def render_fragment() -> None:
+        """Render the latest-price fragment.
+
+        Inputs:
+        - None
+
+        Outputs:
+        - None
+        """
+        # This part refreshes the page when the market closes.
         market_open = us_market_is_open()
         if scheduled_market_open and not market_open:
             st.rerun(scope="app")
+        # This part fetches and displays one latest price per stock.
         latest_prices = st.session_state.setdefault("latest_price_data", {})
         price_columns = st.columns(len(result["stocks"]))
         for column, stock in zip(price_columns, result["stocks"].values()):
@@ -362,6 +547,15 @@ def render_latest_price_card(result:dict) -> None:
 
 
 def render_news(result:dict) -> None:
+    """Render the news panel and its comparison filter.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - None
+    """
+    # This part selects the articles requested by the comparison filter.
     st.subheader("Latest news")
     articles = result["news"]
     if result["comparison"]:
@@ -375,6 +569,7 @@ def render_news(result:dict) -> None:
         if selected != "All":
             role = "A" if selected == "Stock A" else "B"
             articles = [article for article in articles if article["role"] == role]
+    # This part explains why the news panel has no articles.
     if not articles:
         if "credentials not set" in result["news_error"].lower():
             st.info("Latest news needs Alpaca credentials. Add ALPACA_API_KEY and ALPACA_SECRET_KEY to secrets.env.")
@@ -384,36 +579,56 @@ def render_news(result:dict) -> None:
             st.info("No recent news articles are available for this ticker.")
         return
 
+    # This part renders the article-list headings and rows.
     header = st.columns([1.1, 5.2, 1.3], gap="small")
     header[0].markdown("**Ticker**")
     header[1].markdown("**Headline**")
     header[2].markdown("**When**")
     with st.container(height=435):
         for article in articles:
-            ticker_column, headline_column, when_column = st.columns(
-                [1.1, 5.2, 1.3], gap="small"
-            )
-            color = STOCK_COLORS[article["role"]]
-            ticker_column.markdown(
-                f'<span style="color:{color};font-weight:700">{escape(article["ticker"])}</span>',
-                unsafe_allow_html=True,
-            )
-            headline = escape(article["headline"])
-            if article["url"]:
-                headline_column.markdown(f"[{headline}]({article['url']})")
-            else:
-                headline_column.markdown(headline)
-            if not result["comparison"] and article["summary"]:
-                summary = article["summary"].replace("\n", " ").strip()
-                headline_column.caption(summary[:160] + ("…" if len(summary) > 160 else ""))
-            try:
-                when_column.caption(transformation.relative_time(article["created_at"]))
-            except (TypeError, ValueError):
-                when_column.caption("Date unavailable")
-            st.divider()
+            render_news_article(article, result["comparison"])
+
+
+def render_news_article(article:dict, comparison:bool) -> None:
+    """Render one article's ticker, headline, summary, and date.
+
+    Inputs:
+    - article: normalized news article
+    - comparison: whether the dashboard compares two stocks
+
+    Outputs:
+    - None
+    """
+    # This part creates columns and displays the ticker and headline.
+    ticker_column, headline_column, when_column = st.columns([1.1, 5.2, 1.3], gap="small")
+    color = STOCK_COLORS[article["role"]]
+    ticker_column.markdown(f'<span style="color:{color};font-weight:700">{escape(article["ticker"])}</span>', unsafe_allow_html=True)
+    headline = escape(article["headline"])
+    if article["url"]:
+        headline_column.markdown(f"[{headline}]({article['url']})")
+    else:
+        headline_column.markdown(headline)
+    # This part adds the optional single-stock summary and relative date.
+    if not comparison and article["summary"]:
+        summary = article["summary"].replace("\n", " ").strip()
+        headline_column.caption(summary[:160] + ("…" if len(summary) > 160 else ""))
+    try:
+        when_column.caption(transformation.relative_time(article["created_at"]))
+    except (TypeError, ValueError):
+        when_column.caption("Date unavailable")
+    st.divider()
 
 
 def render_dashboard(result:dict) -> None:
+    """Render the main stock comparison dashboard.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - None
+    """
+    # This part renders the title, legend, and comparison context.
     stocks = result["stocks"]
     tickers = [stock["ticker"] for stock in stocks.values()]
     title = " vs ".join(tickers) if result["comparison"] else tickers[0]
@@ -433,35 +648,177 @@ def render_dashboard(result:dict) -> None:
     elif not result["comparison"]:
         st.caption("Add a Stock B on the left to compare")
 
+    # This part renders price metrics before the charts and news.
     render_latest_price_card(result)
     render_metrics(result)
+    # This part lays out the chart beside the news panel.
     chart_column, news_column = st.columns([2, 1], gap="medium")
     with chart_column:
-        price_series = {}
-        volatility_series = {}
-        colors = {}
-        for stock in stocks.values():
-            ticker = stock["ticker"]
-            if ticker in price_series:
-                continue
-            price_series[ticker] = stock["prices"]
-            volatility_series[ticker] = transformation.rolling_volatility(stock["prices"])
-            colors[ticker] = STOCK_COLORS[stock["role"]]
-        chart = plots.plot_dashboard(
-            price_series,
-            volatility_series,
-            colors,
-            input_data.get_recession_periods(),
-            result["comparison"],
-            result["start_date"],
-            result["end_date"],
-        )
-        st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
+        render_dashboard_chart(result)
     with news_column:
         render_news(result)
 
 
+def render_dashboard_chart(result:dict) -> None:
+    """Prepare and display the dashboard's price and volatility chart.
+
+    Inputs:
+    - result: dashboard analysis result
+
+    Outputs:
+    - None
+    """
+    # This part builds chart series while avoiding duplicate ticker traces.
+    price_series = {}
+    volatility_series = {}
+    colors = {}
+    for stock in result["stocks"].values():
+        ticker = stock["ticker"]
+        if ticker in price_series:
+            continue
+        price_series[ticker] = stock["prices"]
+        volatility_series[ticker] = transformation.rolling_volatility(stock["prices"])
+        colors[ticker] = STOCK_COLORS[stock["role"]]
+    # This part creates and displays the chart with recession shading.
+    chart = plots.plot_dashboard(
+        price_series,
+        volatility_series,
+        colors,
+        input_data.get_recession_periods(),
+        result["comparison"],
+        result["start_date"],
+        result["end_date"],
+    )
+    st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
+
+
+def render_analysis_form(today:date, earliest_start:date) -> None:
+    """Render the sidebar form and run a valid stock analysis.
+
+    Inputs:
+    - today: current date used for range limits
+    - earliest_start: earliest selectable date
+
+    Outputs:
+    - None
+    """
+    # This part renders the stock and date-range inputs.
+    with st.form("stock_analysis_form"):
+        ticker_a = st.text_input("Stock A", value="AAPL")
+        ticker_b = st.text_input("Stock B (optional)", value="MSFT", help="Leave empty to look at one stock")
+        range_label = st.selectbox("Time range", ["1 year", "5 years", "10 years", "20 years", "Custom"], index=3)
+        start_date = st.date_input("Start date", min_value=earliest_start, max_value=today, help="Used only when Time range is Custom", key="start_date")
+        end_date = st.date_input("End date", min_value=earliest_start, max_value=today, help="Used only when Time range is Custom", key="end_date")
+        run = st.form_submit_button("Run", type="primary", width="stretch")
+    # This part validates the selected date range and loads analysis data.
+    if run:
+        if range_label != "Custom":
+            years = RANGE_OPTIONS[range_label]
+            start_date = (pd.Timestamp(today) - pd.DateOffset(years=years)).date()
+            end_date = today
+        if start_date is None or end_date is None:
+            st.warning("Choose both a start date and an end date.")
+        elif start_date >= end_date:
+            st.warning("The start date must be before the end date.")
+        elif (end_date - start_date).days < 60:
+            st.warning("Choose a date range of at least 60 days for the volatility analysis.")
+        else:
+            with st.spinner("Loading prices and news..."):
+                result, warnings = load_analysis(ticker_a, ticker_b, start_date, end_date, range_label)
+            for warning in warnings:
+                st.warning(warning)
+            if result:
+                result["input_stock_b"] = bool(ticker_b.strip())
+                st.session_state.analysis_results = result
+            else:
+                st.error("No valid stock price data was found. Check the ticker symbols and try again.")
+
+
+def render_saved_analyses() -> str | None:
+    """Render save and previous-analysis controls.
+
+    Inputs:
+    - None
+
+    Outputs:
+    - Selected saved report to display, if requested
+    """
+    # This part saves the current analysis when requested.
+    result = st.session_state.analysis_results
+    if result and st.button("Save Analysis", width="stretch"):
+        try:
+            now = datetime.now().astimezone()
+            markdown = make_analysis_markdown(
+                {
+                    **result,
+                    "latest_prices": st.session_state.get("latest_price_data", {}),
+                },
+                plain_words(result),
+                now,
+            )
+            saved_path = storage.save_analysis(
+                markdown,
+                [stock["ticker"] for stock in result["stocks"].values()],
+                "overview" if result["comparison"] else "single",
+                now,
+            )
+            st.success(f"Analysis saved: {saved_path.name}")
+        except (OSError, ValueError) as error:
+            st.error(f"Could not save this analysis: {error}")
+
+    # This part loads the saved analyses and reports any storage errors.
+    st.subheader("Previous Analyses")
+    try:
+        saved_files = storage.list_analyses()
+    except OSError as error:
+        saved_files = []
+        st.error(f"Could not list saved analyses: {error}")
+    # This part displays saved report details and returns a requested report.
+    if saved_files:
+        selected_path = st.selectbox("Saved analyses", saved_files, format_func=analysis_label, label_visibility="collapsed")
+        try:
+            st.caption(saved_analysis_details(storage.read_analysis(selected_path)))
+        except (OSError, ValueError) as error:
+            st.error(f"Could not read saved analysis details: {error}")
+        if st.button("Show", width="stretch"):
+            try:
+                return storage.read_analysis(selected_path)
+            except (OSError, ValueError) as error:
+                st.error(f"Could not open this analysis: {error}")
+    else:
+        st.caption("No saved analyses yet. Run an analysis and click Save Analysis to keep it here.")
+    return None
+
+
+def render_sidebar(today:date, earliest_start:date) -> str | None:
+    """Render the sidebar and return a saved report selected for display.
+
+    Inputs:
+    - today: current date used for range limits
+    - earliest_start: earliest selectable date
+
+    Outputs:
+    - Selected saved report, if any
+    """
+    # This part renders the analysis form and saved-report controls.
+    st.title("Stock Comparison")
+    render_analysis_form(today, earliest_start)
+    dialog_content = render_saved_analyses()
+    # This part displays the dashboard's educational-use note.
+    st.caption("For learning only. Not investment advice. Prices delayed ~15 min.")
+    return dialog_content
+
+
 def main() -> None:
+    """Configure and render the Streamlit application.
+
+    Inputs:
+    - None
+
+    Outputs:
+    - None
+    """
+    # This part configures the page and its visual styling.
     st.set_page_config(page_title="Stock Comparison", page_icon="📈", layout="wide")
     st.markdown(
         """
@@ -479,120 +836,18 @@ def main() -> None:
         """,
         unsafe_allow_html=True,
     )
+    # This part initializes the analysis state and date range.
     st.session_state.setdefault("analysis_results", None)
-
-    dialog_content = None
     today = date.today()
     earliest_start = (pd.Timestamp(today) - pd.DateOffset(years=20)).date()
     st.session_state.setdefault("start_date", earliest_start)
     st.session_state.setdefault("end_date", today)
 
+    # This part renders the sidebar and any selected saved analysis.
     with st.sidebar:
-        st.title("Stock Comparison")
-        with st.form("stock_analysis_form"):
-            ticker_a = st.text_input("Stock A", value="AAPL")
-            ticker_b = st.text_input(
-                "Stock B (optional)",
-                value="MSFT",
-                help="Leave empty to look at one stock",
-            )
-            range_label = st.selectbox(
-                "Time range",
-                ["1 year", "5 years", "10 years", "20 years", "Custom"],
-                index=3,
-            )
-            start_date = st.date_input(
-                "Start date",
-                min_value=earliest_start,
-                max_value=today,
-                help="Used only when Time range is Custom",
-                key="start_date",
-            )
-            end_date = st.date_input(
-                "End date",
-                min_value=earliest_start,
-                max_value=today,
-                help="Used only when Time range is Custom",
-                key="end_date",
-            )
-            run = st.form_submit_button("Run", type="primary", width="stretch")
-        if run:
-            if range_label != "Custom":
-                years = RANGE_OPTIONS[range_label]
-                start_date = (pd.Timestamp(today) - pd.DateOffset(years=years)).date()
-                end_date = today
-            if start_date is None or end_date is None:
-                st.warning("Choose both a start date and an end date.")
-            elif start_date >= end_date:
-                st.warning("The start date must be before the end date.")
-            elif (end_date - start_date).days < 60:
-                st.warning("Choose a date range of at least 60 days for the volatility analysis.")
-            else:
-                with st.spinner("Loading prices and news..."):
-                    result, warnings = load_analysis(
-                        ticker_a,
-                        ticker_b,
-                        start_date,
-                        end_date,
-                        range_label,
-                    )
-                for warning in warnings:
-                    st.warning(warning)
-                if result:
-                    result["input_stock_b"] = bool(ticker_b.strip())
-                    st.session_state.analysis_results = result
-                else:
-                    st.error("No valid stock price data was found. Check the ticker symbols and try again.")
+        dialog_content = render_sidebar(today, earliest_start)
 
-        result = st.session_state.analysis_results
-        if result:
-            if st.button("Save Analysis", width="stretch"):
-                try:
-                    now = datetime.now().astimezone()
-                    markdown = make_analysis_markdown(
-                        {
-                            **result,
-                            "latest_prices": st.session_state.get("latest_price_data", {}),
-                        },
-                        plain_words(result),
-                        now,
-                    )
-                    saved_path = storage.save_analysis(
-                        markdown,
-                        [stock["ticker"] for stock in result["stocks"].values()],
-                        "overview" if result["comparison"] else "single",
-                        now,
-                    )
-                    st.success(f"Analysis saved: {saved_path.name}")
-                except (OSError, ValueError) as error:
-                    st.error(f"Could not save this analysis: {error}")
-
-        st.subheader("Previous Analyses")
-        try:
-            saved_files = storage.list_analyses()
-        except OSError as error:
-            saved_files = []
-            st.error(f"Could not list saved analyses: {error}")
-        if saved_files:
-            selected_path = st.selectbox(
-                "Saved analyses",
-                saved_files,
-                format_func=analysis_label,
-                label_visibility="collapsed",
-            )
-            try:
-                st.caption(saved_analysis_details(storage.read_analysis(selected_path)))
-            except (OSError, ValueError) as error:
-                st.error(f"Could not read saved analysis details: {error}")
-            if st.button("Show", width="stretch"):
-                try:
-                    dialog_content = storage.read_analysis(selected_path)
-                except (OSError, ValueError) as error:
-                    st.error(f"Could not open this analysis: {error}")
-        else:
-            st.caption("No saved analyses yet. Run an analysis and click Save Analysis to keep it here.")
-        st.caption("For learning only. Not investment advice. Prices delayed ~15 min.")
-
+    # This part displays a selected report and the current dashboard.
     if dialog_content is not None:
         show_saved_analysis(dialog_content)
     result = st.session_state.analysis_results
