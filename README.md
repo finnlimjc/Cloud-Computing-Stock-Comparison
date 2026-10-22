@@ -1,13 +1,10 @@
 # Cloud Computing Stock Comparison
 
-A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Enter a ticker (e.g. `MU`), pick an analysis type and click **Run**.
+A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Enter Stock A and optionally Stock B, choose a quick time range, and click **Run**.
 
-| Analysis type | What it shows | Source |
-|---|---|---|
-| filings | Income statement, balance sheet and cash flow | Yahoo Finance (`yfinance`) |
-| news | Latest 5 headlines (hyperlinked) with date and summary | Alpaca News API |
-| stock price ratings | Current price and the last 10 analyst recommendations | Yahoo Finance (`yfinance`) |
-| price | 1-year price chart linked to a drawdown chart, plus max drawdown | Yahoo Finance (`yfinance`) |
+The dashboard supports single-stock and comparison modes, with four summary metrics, an "In plain words" summary, recent news, and price/volatility charts. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
+
+The available time ranges are **1 year**, **5 years**, **10 years**, and **20 years** (default). The dashboard uses historical closing prices and does not auto-refresh live prices.
 
 ## Setup
 
@@ -20,7 +17,7 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
    python -m pip install -r requirements.txt
    ```
 
-2. **Set up `secrets.env`** (required for the `news` analysis).
+2. **Set up `secrets.env`** (optional, for news).
 
    The news analysis calls the Alpaca News API, which needs API credentials. Get a free key pair from [Alpaca](https://alpaca.markets/), then create a file named `secrets.env` in the project root (next to `app.py`) containing:
 
@@ -31,7 +28,7 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
    - The file is loaded automatically by `src/input_data.py` via `python-dotenv`.
    - `*.env` is listed in `.gitignore`, so it will not be committed. Never commit or share your keys.
-   - Without it, the `news` analysis shows "Alpaca credentials not set"; the other analysis types still work.
+   - Without it, stock prices and charts still work; the dashboard will report that news could not be loaded.
 
 3. Run the app.
 
@@ -41,7 +38,7 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
 ## Save and View Analyses
 
-After running an analysis for a ticker, click **Save Analysis** in the sidebar to save a Markdown report. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
+After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
 
 ## Project structure
 
@@ -50,8 +47,8 @@ After running an analysis for a ticker, click **Save Analysis** in the sidebar t
 ├── app.py                  # Streamlit UI (run this)
 ├── src/
 │   ├── input_data.py       # Data loading: Yahoo Finance and Alpaca; loads secrets.env
-│   ├── transformation.py   # compute_drawdown, format_alpaca_news
-│   └── plots.py            # Plotly price and drawdown chart
+│   ├── transformation.py   # Price metrics, summaries, and news formatting
+│   └── plots.py            # Plotly price, volatility, and drawdown charts
 ├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
 ├── documentation/          # AWS architecture write-ups
 ├── assets/                 # Architecture diagrams
@@ -60,7 +57,7 @@ After running an analysis for a ticker, click **Save Analysis** in the sidebar t
 └── requirements.txt        # Python dependencies
 ```
 
-- `app.py` caches each lookup for 30 minutes and shows expected problems (empty ticker, no data) as warnings and anything else as errors.
+- `app.py` caches price and news lookups for 30 minutes and shows ticker/provider problems in the dashboard.
 - The notebooks in `notebooks/` are the starting point the functions in `src/` were taken from. Run them with `jupyter notebook` if you want to explore the raw code.
 
 ## AWS architecture
