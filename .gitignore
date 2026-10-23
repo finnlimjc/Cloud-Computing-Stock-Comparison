@@ -2,3 +2,5 @@
 /.venv
 *.env
 analyses-data/
+/.vscode
+CLAUDE.md
