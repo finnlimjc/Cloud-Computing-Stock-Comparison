@@ -32,6 +32,7 @@ STOCK_COLORS = {
     "A": plots.STOCK_A_COLOR,
     "B": plots.STOCK_B_COLOR,
 }
+NEWS_COLUMN_WIDTHS = (1.5, 5.2, 1.5)
 METRIC_HELP = {
     "Latest price": "The latest intraday price, or the most recent close when the US market is closed.",
     "Return over period": "The percentage change from the first to the last price in this range.",
@@ -50,6 +51,15 @@ METRIC_CAPTIONS = {
     "Max drawdown": "worst drop from a peak",
     "Sharpe ratio": "return per unit of risk",
 }
+COMPARISON_METRICS = [
+    "Revenue",
+    "Gross Profit",
+    "Net Income",
+    "Total Assets",
+    "Total Liabilities",
+    "Cash & Equivalents",
+    "Operating Cash Flow",
+]
 
 
 @st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
@@ -66,6 +76,12 @@ def load_prices(ticker:str, start_date:date, end_date:date) -> pd.Series:
     """
     # This part delegates the request to the price-history provider.
     return input_data.get_price_history(ticker, start_date, end_date)
+
+
+@st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
+def load_company_pair_data(ticker_a: str, ticker_b: str) -> dict:
+    """Download and cache the snapshots used by the company metrics comparison."""
+    return input_data.get_company_pair_data(ticker_a, ticker_b)
 
 
 @st.cache_data(ttl=LATEST_PRICE_TTL, show_spinner=False)
@@ -114,8 +130,8 @@ def load_news(ticker:str) -> list[dict]:
     Outputs:
     - Recent news articles
     """
-    # This part requests the five newest news articles.
-    return input_data.get_alpaca_news(ticker, limit=5)
+    # This part uses Alpaca when configured and falls back to Yahoo Finance otherwise.
+    return input_data.get_news(ticker, limit=5)
 
 
 def analyze_ticker(
@@ -565,7 +581,7 @@ def render_latest_price_card(result:dict, card_placeholder, status_placeholder, 
     # This part sets the refresh schedule from the current market status.
     scheduled_market_open = us_market_is_open()
 
-    @st.fragment(run_every=60 if scheduled_market_open else None, key="latest-price-card")
+    @st.fragment(run_every=60 if scheduled_market_open else None)
     def render_fragment() -> None:
         """Render the latest-price card and its update status.
 
@@ -650,7 +666,7 @@ def render_news(result:dict) -> None:
             st.info("No recent news articles are available for this ticker.")
         return
     # This part renders the news table headings and rows.
-    header = st.columns([1.1, 5.2, 1.3], gap="small")
+    header = st.columns(NEWS_COLUMN_WIDTHS, gap="small")
     header[0].markdown("**Ticker**")
     header[1].markdown("**Headline**")
     header[2].markdown("**When**")
@@ -671,7 +687,7 @@ def render_news_article(article:dict, comparison:bool) -> None:
     """
     # This part creates columns and displays the ticker and headline.
     ticker_column, headline_column, when_column = st.columns(
-        [1.1, 5.2, 1.3],
+        NEWS_COLUMN_WIDTHS,
         gap="small",
     )
     color = STOCK_COLORS[article["role"]]
@@ -921,6 +937,153 @@ def render_saved_analyses() -> str | None:
     return None
 
 
+def show_comparison_dashboard() -> None:
+    st.header("Two-Company Comparison")
+    st.write("Compare financial metrics, business models, and analyst sentiment.")
+
+    with st.form("comparison_form"):
+        ticker_columns = st.columns(2)
+        ticker_a = ticker_columns[0].text_input(
+            "First ticker",
+            value=st.session_state.get("comparison_ticker_a", "AAPL"),
+            placeholder="e.g. AAPL",
+        )
+        ticker_b = ticker_columns[1].text_input(
+            "Second ticker",
+            value=st.session_state.get("comparison_ticker_b", "MSFT"),
+            placeholder="e.g. MSFT",
+        )
+        selected_metric = st.session_state.get("comparison_metric", COMPARISON_METRICS[0])
+        metric = st.selectbox(
+            "Metric for grouped bar chart",
+            COMPARISON_METRICS,
+            index=COMPARISON_METRICS.index(selected_metric),
+        )
+        submitted = st.form_submit_button("Compare companies")
+
+    if submitted:
+        try:
+            clean_a = input_data.clean_ticker(ticker_a)
+            clean_b = input_data.clean_ticker(ticker_b)
+            if clean_a == clean_b:
+                raise ValueError("Please enter two different ticker symbols.")
+            st.session_state["comparison_ticker_a"] = clean_a
+            st.session_state["comparison_ticker_b"] = clean_b
+            st.session_state["comparison_metric"] = metric
+        except ValueError as e:
+            st.warning(str(e))
+            return
+
+    ticker_a = st.session_state.get("comparison_ticker_a")
+    ticker_b = st.session_state.get("comparison_ticker_b")
+    if not ticker_a or not ticker_b:
+        return
+
+    metric = st.session_state.get("comparison_metric", metric)
+    try:
+        with st.spinner(f"Loading comparison data for {ticker_a} and {ticker_b}..."):
+            company_data = load_company_pair_data(ticker_a, ticker_b)
+            company_a = company_data[ticker_a]
+            company_b = company_data[ticker_b]
+
+        fiscal_years = transformation.get_common_fiscal_years(company_a, company_b)
+        if len(fiscal_years) < 2:
+            st.warning(
+                "At least two common fiscal years are needed for the first two charts."
+            )
+            return
+
+        control_columns = st.columns([2, 1, 1])
+        selected_years = control_columns[0].select_slider(
+            "Fiscal years for charts 1–2",
+            options=fiscal_years,
+            value=(fiscal_years[-2], fiscal_years[-1]),
+            format_func=lambda year: f"FY{year}",
+            key=f"comparison_years_{ticker_a}_{ticker_b}",
+        )
+        radar_year = control_columns[1].selectbox(
+            "Fiscal year for chart 3",
+            options=fiscal_years,
+            index=len(fiscal_years) - 1,
+            format_func=lambda year: f"FY{year}",
+            key=f"radar_year_{ticker_a}_{ticker_b}",
+        )
+        analyst_periods = transformation.get_common_analyst_periods(company_a, company_b)
+        if analyst_periods:
+            selected_analyst_period = control_columns[2].selectbox(
+                "Snapshot for chart 4",
+                options=analyst_periods,
+                format_func=transformation.analyst_period_label,
+                key=f"analyst_period_{ticker_a}_{ticker_b}",
+            )
+        else:
+            selected_analyst_period = None
+            control_columns[2].warning("No common analyst snapshot periods.")
+
+        core_metrics = transformation.build_core_metrics_table(
+            company_a,
+            company_b,
+            years=selected_years,
+        )
+        grouped_data = transformation.build_grouped_bar_dataset(
+            company_a,
+            company_b,
+            metric,
+            years=selected_years,
+        )
+        radar_data = transformation.build_business_model_radar_data(
+            company_a,
+            company_b,
+            fiscal_year=radar_year,
+        )
+        sentiment_data = (
+            transformation.build_analyst_sentiment_data(
+                company_a,
+                company_b,
+                period=selected_analyst_period,
+            )
+            if selected_analyst_period
+            else None
+        )
+
+        first_row = st.columns(2)
+        with first_row[0]:
+            st.plotly_chart(
+                plots.make_core_metrics_figure(core_metrics),
+                use_container_width=True,
+            )
+        with first_row[1]:
+            st.plotly_chart(
+                plots.make_grouped_bar_figure(grouped_data, metric),
+                use_container_width=True,
+            )
+
+        second_row = st.columns(2)
+        with second_row[0]:
+            if radar_data["missing_metrics"]:
+                missing = ", ".join(
+                    f"{item['company']} — {item['metric']}"
+                    for item in radar_data["missing_metrics"]
+                )
+                st.warning(
+                    f"FY{radar_data['fiscal_year']} data unavailable for: {missing}. "
+                    "These radar points are omitted, not scored as zero."
+                )
+            st.plotly_chart(
+                plots.make_business_model_radar_figure(radar_data),
+                use_container_width=True,
+            )
+        with second_row[1]:
+            if sentiment_data:
+                st.plotly_chart(
+                    plots.make_analyst_sentiment_figure(sentiment_data),
+                    use_container_width=True,
+                )
+    except ValueError as e:
+        st.warning(str(e))
+    except Exception as e:
+        st.error(f"Unable to load the company comparison: {e}")
+
 def main() -> None:
     """Configure and render the Streamlit dashboard.
 
@@ -955,13 +1118,17 @@ def main() -> None:
         render_analysis_form(date.today())
         saved_report = render_saved_analyses()
         st.caption("For learning only. Not investment advice.")
-    # This part displays the selected saved report and current dashboard.
-    if saved_report is not None:
-        show_saved_analysis(saved_report)
-    result = st.session_state.analysis_results
-    if result:
-        render_dashboard(result)
-
+    performance_page, metrics_page = st.tabs(
+        ["Stock Performance", "Company Metrics"]
+    )
+    with performance_page:
+        if saved_report is not None:
+            show_saved_analysis(saved_report)
+        result = st.session_state.analysis_results
+        if result:
+            render_dashboard(result)
+    with metrics_page:
+        show_comparison_dashboard()
 
 if __name__ == "__main__":
     main()

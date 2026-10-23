@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any, Dict
 
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import yfinance as yf
 
 from src.transformation import normalize_prices
 
+# This section defines the original project styling and the updated company color scheme.
 LINE_WIDTH = 1.5
+USD_PER_BILLION = 1_000_000_000
+CURRENCY_SELECTION_ERROR = "Please select companies with valid currencies or exchange rates."
 NEUTRAL_COLOR = "#1f77b4"
 NEGATIVE_COLOR = "crimson"
 NEGATIVE_FILL_COLOR = "rgba(220, 20, 60, 0.3)"
@@ -210,6 +215,21 @@ def plot_dashboard(
     return fig
 
 
+# Updated company palette to match the screenshot style:
+# Company A is dark blue and Company B is gold.
+COLOR_A = "#12264F"
+COLOR_B = "#C7A15E"
+
+COLOR_UP = "#2E8B57"
+COLOR_DOWN = "#D95D39"
+COLOR_INK = "#17233d"
+COLOR_MUTED = "#5f6b7f"
+COLOR_RULE = "#e2e7ef"
+COLOR_BG = "#ffffff"
+FONT_STACK = "Work Sans, Helvetica Neue, Arial, sans-serif"
+MONO_STACK = "IBM Plex Mono, SF Mono, Menlo, monospace"
+
+
 def plot_price_drawdown(prices:pd.Series, drawdown:pd.Series, ticker:str) -> go.Figure:
     """Plot price and drawdown on linked time axes.
 
@@ -267,4 +287,513 @@ def plot_price_drawdown(prices:pd.Series, drawdown:pd.Series, ticker:str) -> go.
         yaxis=dict(domain=price_domain, title_text="Price"),
         yaxis2=dict(domain=drawdown_domain, title_text="Drawdown", tickformat=".0%"),
     )
+    return fig
+
+
+# This function formats a numeric value as a clean money string.
+def _format_money(value: float) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.2f}"
+
+
+# This function formats a signed numeric value with a plus sign for positive values.
+def _format_signed(value: float) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:+,.2f}"
+
+
+# This function formats a percentage value with a directional arrow.
+def _format_pct(value: float) -> str:
+    if pd.isna(value):
+        return "N/A"
+    arrow = "▲" if value >= 0 else "▼"
+    return f"{arrow}{value:+.1f}%"
+
+
+# This function returns the latest USD value of one unit of the company's reporting currency.
+def _get_usd_conversion_rate(ticker: str) -> float:
+    info = yf.Ticker(ticker).info or {}
+    currency = info.get("financialCurrency")
+    if not currency:
+        raise ValueError(CURRENCY_SELECTION_ERROR)
+
+    currency = str(currency).upper()
+    if currency == "USD":
+        return 1.0
+
+    def latest_close(pair: str) -> float | None:
+        history = yf.Ticker(pair).history(period="5d")
+        if history.empty or "Close" not in history:
+            return None
+        closes = history["Close"].dropna()
+        return float(closes.iloc[-1]) if not closes.empty else None
+
+    rate = latest_close(f"{currency}USD=X")
+    if rate is None:
+        inverse_rate = latest_close(f"USD{currency}=X")
+        if inverse_rate is None:
+            raise ValueError(CURRENCY_SELECTION_ERROR)
+        if pd.isna(inverse_rate) or inverse_rate <= 0:
+            raise ValueError(CURRENCY_SELECTION_ERROR)
+        rate = 1 / inverse_rate
+
+    if pd.isna(rate) or rate <= 0:
+        raise ValueError(CURRENCY_SELECTION_ERROR)
+    return rate
+
+
+# This function creates the core financial comparison table.
+def make_core_metrics_figure(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return go.Figure()
+
+    tickers = list(df["Company"].dropna().unique())
+    usd_rates = {ticker: _get_usd_conversion_rate(ticker) for ticker in tickers}
+    fiscal_year_columns = [
+        column for column in df.columns
+        if isinstance(column, str) and column.startswith("FY") and column[2:].isdigit()
+    ]
+    if len(fiscal_year_columns) != 2:
+        raise ValueError("Core metrics chart requires exactly two selected fiscal years.")
+    year_a, year_b = fiscal_year_columns
+
+    n_cols = 6
+    values = [[] for _ in range(n_cols)]
+    fills = [[] for _ in range(n_cols)]
+    fonts = [[] for _ in range(n_cols)]
+
+    # This loop adds each statement block to the comparison table.
+    for statement in df["Statement"].drop_duplicates():
+        values[0].append(statement.upper())
+        fills[0].append("#eef2f8")
+        fonts[0].append(COLOR_B)
+
+        for col_idx in range(1, n_cols):
+            values[col_idx].append("")
+            fills[col_idx].append("#eef2f8")
+            fonts[col_idx].append(COLOR_MUTED)
+
+        subset = df[df["Statement"] == statement]
+
+        for _, row in subset.iterrows():
+            usd_rate = usd_rates[row["Company"]]
+            value_a_usd = row[year_a] * usd_rate / USD_PER_BILLION
+            value_b_usd = row[year_b] * usd_rate / USD_PER_BILLION
+            abs_change_usd = row["Abs_Change"] * usd_rate / USD_PER_BILLION
+            growth_pct = row["Growth_Pct"]
+
+            is_positive = abs_change_usd >= 0
+            diff_fill = "rgba(14,159,110,0.10)" if is_positive else "rgba(224,36,36,0.10)"
+            diff_font = COLOR_UP if is_positive else COLOR_DOWN
+
+            row_data = [
+                row["Metric"],
+                row["Company"],
+                _format_money(value_a_usd),
+                _format_money(value_b_usd),
+                _format_signed(abs_change_usd),
+                _format_pct(growth_pct),
+            ]
+
+            for idx, val in enumerate(row_data):
+                values[idx].append(val)
+                if idx == 0:
+                    fills[idx].append(COLOR_BG)
+                    fonts[idx].append(COLOR_INK)
+                elif idx in (4, 5):
+                    fills[idx].append(diff_fill)
+                    fonts[idx].append(diff_font)
+                else:
+                    fills[idx].append(COLOR_BG)
+                    fonts[idx].append(COLOR_INK)
+
+    header = [
+        "Metric",
+        "Company",
+        year_a,
+        year_b,
+        f"Abs. Change<br><span style='font-size:9px'>{year_b} − {year_a}</span>",
+        f"Growth<br><span style='font-size:9px'>{year_a} → {year_b}</span>",
+    ]
+
+    fig = go.Figure(
+        go.Table(
+            columnwidth=[145, 68, 76, 76, 116, 104],
+            header=dict(
+                values=header,
+                fill_color=[COLOR_A, COLOR_A, COLOR_A, COLOR_A, COLOR_B, COLOR_B],
+                font=dict(color="#ffffff", size=12, family=FONT_STACK),
+                align=["left", "center", "right", "right", "center", "center"],
+                height=48,
+                line_color=COLOR_A,
+            ),
+            cells=dict(
+                values=values,
+                fill_color=fills,
+                font=dict(color=fonts, size=12.5, family=MONO_STACK),
+                align=["left", "center", "right", "right", "right", "center"],
+                height=34,
+                line_color=COLOR_RULE,
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=(
+                f"Core Metrics Comparison — {year_a} vs {year_b}"
+                "<br>(USD billions · per-company growth)"
+            ),
+            font=dict(size=15, color=COLOR_INK, family=FONT_STACK),
+            x=0.01,
+            xanchor="left",
+        ),
+        width=760,
+        height=700,
+        paper_bgcolor=COLOR_BG,
+        plot_bgcolor=COLOR_BG,
+        margin=dict(l=12, r=12, t=78, b=16),
+    )
+
+    return fig
+
+
+# This function creates the grouped bar chart for the selected metric.
+def make_grouped_bar_figure(data: Dict[str, Any], metric: str = "Revenue") -> go.Figure:
+    fig = go.Figure()
+    usd_rate_a = _get_usd_conversion_rate(data["company_a"])
+    usd_rate_b = _get_usd_conversion_rate(data["company_b"])
+    series_a = [value * usd_rate_a / USD_PER_BILLION for value in data["series_a"]]
+    series_b = [value * usd_rate_b / USD_PER_BILLION for value in data["series_b"]]
+
+    fig.add_bar(
+        x=data["years"],
+        y=series_a,
+        name=data["company_a"],
+        marker=dict(color=COLOR_A, cornerradius=4),
+        text=[f"{v:,.2f}" if pd.notna(v) else "" for v in series_a],
+        customdata=data["years"],
+        hovertemplate="%{fullData.name}<br>%{customdata}<br>%{y:,.2f} USD billions<extra></extra>",
+        textposition="outside",
+        textfont=dict(color=COLOR_A, size=11, family=MONO_STACK),
+        width=0.3,
+    )
+
+    fig.add_bar(
+        x=data["years"],
+        y=series_b,
+        name=data["company_b"],
+        marker=dict(color=COLOR_B, cornerradius=4),
+        text=[f"{v:,.2f}" if pd.notna(v) else "" for v in series_b],
+        customdata=data["years"],
+        hovertemplate="%{fullData.name}<br>%{customdata}<br>%{y:,.2f} USD billions<extra></extra>",
+        textposition="outside",
+        textfont=dict(color=COLOR_B, size=11, family=MONO_STACK),
+        width=0.3,
+    )
+
+    fig.update_layout(
+        barmode="group",
+        bargap=0.42,
+        bargroupgap=0.12,
+        title=dict(
+            text=(
+                f"{metric} — Grouped Comparison"
+                f"<br>({' vs '.join(data['years'])}, USD billions · latest FX rates)"
+            ),
+            font=dict(size=17, color=COLOR_INK, family=FONT_STACK),
+            x=0.01,
+            xanchor="left",
+        ),
+        legend=dict(
+            orientation="h",
+            x=0.0,
+            y=1.02,
+            xanchor="left",
+            font=dict(color=COLOR_INK, size=12, family=FONT_STACK),
+        ),
+        xaxis=dict(
+            title=None,
+            tickfont=dict(color=COLOR_INK, size=13, family=FONT_STACK),
+            showline=True,
+            linecolor=COLOR_RULE,
+            ticks="",
+        ),
+        yaxis=dict(
+            title=dict(text="USD billions", font=dict(color=COLOR_MUTED, size=11)),
+            gridcolor=COLOR_RULE,
+            zeroline=False,
+            tickfont=dict(color=COLOR_MUTED, size=11, family=MONO_STACK),
+        ),
+        width=1280,
+        height=640,
+        paper_bgcolor=COLOR_BG,
+        plot_bgcolor=COLOR_BG,
+        margin=dict(l=64, r=24, t=116, b=48),
+    )
+
+    return fig
+
+
+# This function creates the business model radar chart.
+def make_business_model_radar_figure(radar_data: Dict[str, Any]) -> go.Figure:
+    labels = radar_data["labels"]
+    values_a = radar_data["values_a"]
+    values_b = radar_data["values_b"]
+    fiscal_year = radar_data["fiscal_year"]
+    definitions = radar_data["definitions"]
+    axis_labels = [
+        label.replace("Safety Ratio", "Safety<br>Ratio").replace(
+            "Gross Margin", "Gross<br>Margin"
+        )
+        for label in labels
+    ]
+    def trace_customdata(
+        scores: list,
+        actuals: list,
+        units: Dict[str, str],
+    ) -> list:
+        return [
+            [
+                label,
+                f"{score:.1f}" if score is not None else "N/A",
+                f"{actual:.1f}{units[label]}" if actual is not None else "Unavailable",
+                definitions[label],
+            ]
+            for label, score, actual in zip(labels, scores, actuals)
+        ]
+
+    fig = go.Figure()
+
+    companies = [
+        {
+            "name": radar_data.get("name_a", radar_data["company_a"]),
+            "values": values_a,
+            "actuals": radar_data["actuals_a"],
+            "color": COLOR_A,
+            "fillcolor": "rgba(18,38,79,0.14)",
+            "symbol": "circle",
+        },
+        {
+            "name": radar_data.get("name_b", radar_data["company_b"]),
+            "values": values_b,
+            "actuals": radar_data["actuals_b"],
+            "color": COLOR_B,
+            "fillcolor": "rgba(199,161,94,0.18)",
+            "symbol": "diamond",
+        },
+    ]
+
+    # Draw filled areas first so neither company's markers are hidden by the other fill.
+    for company in reversed(companies):
+        fig.add_trace(
+            go.Scatterpolar(
+                r=company["values"],
+                theta=axis_labels,
+                name=company["name"],
+                mode="lines",
+                fill="toself",
+                line=dict(color=company["color"], width=2.5),
+                fillcolor=company["fillcolor"],
+                connectgaps=False,
+                hoverinfo="skip",
+            )
+        )
+
+    axis_hover_customdata = [
+        [label, definitions[label]]
+        for label in labels
+        for _ in range(5)
+    ]
+    fig.add_trace(
+        go.Scatterpolar(
+            r=[20, 40, 60, 80, 100] * len(labels),
+            theta=[axis_label for axis_label in axis_labels for _ in range(5)],
+            mode="markers",
+            marker=dict(color="rgba(255,255,255,0.01)", size=16),
+            customdata=axis_hover_customdata,
+            hovertemplate="<b>%{customdata[0]}</b><br>Formula: %{customdata[1]}<extra></extra>",
+            showlegend=False,
+        )
+    )
+
+    for company in companies:
+        fig.add_trace(
+            go.Scatterpolar(
+                r=company["values"],
+                theta=axis_labels,
+                name=company["name"],
+                mode="markers",
+                marker=dict(
+                    color=company["color"],
+                    size=9,
+                    symbol=company["symbol"],
+                    line=dict(color=COLOR_BG, width=1.2),
+                ),
+                customdata=trace_customdata(
+                    company["values"],
+                    company["actuals"],
+                    radar_data["units"],
+                ),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "Formula: %{customdata[3]}<br>"
+                    "Normalized score: %{customdata[1]}/100<br>"
+                    f"FY{fiscal_year} actual: "
+                    "%{customdata[2]}<extra>%{fullData.name}</extra>"
+                ),
+                showlegend=False,
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text=(
+                f"Normalized Business Model Fingerprint — FY{fiscal_year}"
+                "<br><span style='font-family:Work Sans, Helvetica Neue, Arial, sans-serif;"
+                "font-size:14px;font-weight:400;color:#4B5563'>"
+                "Normalized Business Metric Scores (0-100) | "
+                "<i>Hover for formulas</i></span>"
+            ),
+            font=dict(size=17, color=COLOR_INK, family=FONT_STACK),
+            x=0.01,
+            xanchor="left",
+            y=0.92,
+            yanchor="top",
+        ),
+        polar=dict(
+            domain=dict(x=[0.10, 0.90], y=[0.03, 0.82]),
+            radialaxis=dict(
+                range=[0, 105],
+                gridcolor=COLOR_RULE,
+                tickvals=[0, 20, 40, 60, 80, 100],
+                tickangle=0,
+                tickfont=dict(color=COLOR_MUTED, size=10),
+                showline=False,
+                angle=0,
+            ),
+            angularaxis=dict(
+                gridcolor=COLOR_RULE,
+                tickfont=dict(color=COLOR_INK, size=12.5, family=FONT_STACK),
+            ),
+            bgcolor=COLOR_BG,
+        ),
+        legend=dict(
+            orientation="h",
+            x=1.0,
+            y=0.80,
+            xanchor="right",
+            font=dict(color=COLOR_INK, size=12, family=FONT_STACK),
+        ),
+        annotations=[],
+        width=900,
+        height=660,
+        paper_bgcolor=COLOR_BG,
+        margin=dict(l=48, r=48, t=82, b=30),
+    )
+
+    return fig
+
+
+# This function creates the stacked analyst sentiment bar chart.
+def make_analyst_sentiment_figure(sentiment_data: Dict[str, Any]) -> go.Figure:
+    a = sentiment_data["a"]
+    b = sentiment_data["b"]
+    ticker_a = sentiment_data["company_a"]
+    ticker_b = sentiment_data["company_b"]
+
+    totals = {
+        ticker_a: a["buy"] + a["hold"] + a["sell"],
+        ticker_b: b["buy"] + b["hold"] + b["sell"],
+    }
+
+    def pct(bucket_value: float, total: float) -> float:
+        if total == 0:
+            return 0.0
+        return bucket_value / total * 100
+
+    fig = go.Figure()
+
+    for bucket, label, color, text_color in [
+        ("buy", "Buy", "#2E8B57", "#ffffff"),
+        ("hold", "Hold", "#D9B36C", "#17233d"),
+        ("sell", "Sell", "#C65151", "#ffffff"),
+    ]:
+        values = [
+            pct(a[bucket], totals[ticker_a]),
+            pct(b[bucket], totals[ticker_b]),
+        ]
+
+        labels = [
+            f"{values[0]:.1f}%<br><span style='font-size:10px'>{int(a[bucket])}</span>" if values[0] >= 6 else "",
+            f"{values[1]:.1f}%<br><span style='font-size:10px'>{int(b[bucket])}</span>" if values[1] >= 6 else "",
+        ]
+
+        fig.add_bar(
+            x=[ticker_a, ticker_b],
+            y=values,
+            name=label,
+            marker=dict(color=color),
+            text=labels,
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(color=text_color, size=13, family=MONO_STACK),
+            customdata=[int(a[bucket]), int(b[bucket])],
+            hovertemplate="<b>%{x}</b> · " + label + ": %{y:.1f}% (%{customdata} analysts)<extra></extra>",
+            width=0.42,
+        )
+
+    fig.update_layout(
+        barmode="stack",
+        title=dict(
+            text=(
+                "Analyst Sentiment — 100% Stacked (Buy / Hold / Sell)"
+                f"<br><span style='font-size:13px;font-weight:400'>"
+                f"Snapshot: {sentiment_data.get('period_label', 'Latest snapshot')}</span>"
+            ),
+            font=dict(size=17, color=COLOR_INK, family=FONT_STACK),
+            x=0.01,
+            xanchor="left",
+            y=0.88,
+            yanchor="top",
+        ),
+        legend=dict(
+            orientation="h",
+            x=0.99,
+            y=1.01,
+            xanchor="right",
+            yanchor="bottom",
+            traceorder="normal",
+            font=dict(color=COLOR_INK, size=12, family=FONT_STACK),
+        ),
+        xaxis=dict(
+            tickmode="array",
+            tickvals=[ticker_a, ticker_b],
+            ticktext=[
+                f"<b>{ticker_a}</b><br><span style='font-size:10px;color:#5f6b7f'>"
+                f"Consensus: {a['consensus']} · {totals[ticker_a]} analysts</span>",
+                f"<b>{ticker_b}</b><br><span style='font-size:10px;color:#5f6b7f'>"
+                f"Consensus: {b['consensus']} · {totals[ticker_b]} analysts</span>",
+            ],
+            tickfont=dict(color=COLOR_INK, size=14, family=FONT_STACK),
+            showline=True,
+            linecolor=COLOR_RULE,
+        ),
+        yaxis=dict(
+            title=dict(text="% of covering analysts", font=dict(color=COLOR_MUTED, size=11)),
+            range=[0, 100],
+            ticksuffix="%",
+            gridcolor=COLOR_RULE,
+            zeroline=False,
+            tickfont=dict(color=COLOR_MUTED, size=11, family=MONO_STACK),
+        ),
+        width=1280,
+        height=620,
+        paper_bgcolor=COLOR_BG,
+        plot_bgcolor=COLOR_BG,
+        margin=dict(l=64, r=24, t=160, b=64),
+    )
+
     return fig

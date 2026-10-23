@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -367,3 +369,460 @@ def relative_time(value:object, now:datetime | None=None) -> str:
     if seconds < 604800:
         return f"{seconds // 86400}d ago"
     return timestamp.strftime("%d %b %Y")
+
+
+# This part adds the new data-transformation logic for the two-company comparison dashboard.
+# This section is designed to be compatible with the newer input_data.py snapshot style.
+
+# This helper extracts financial statement frames from either the old format or the new snapshot format.
+def _extract_financials(company: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
+    financials = company.get("financials")
+    if isinstance(financials, dict):
+        return {
+            "income_statement": financials.get(
+                "Income Statement",
+                financials.get("income_statement", pd.DataFrame()),
+            ),
+            "balance_sheet": financials.get(
+                "Balance Sheet",
+                financials.get("balance_sheet", pd.DataFrame()),
+            ),
+            "cash_flow": financials.get(
+                "Cash Flow",
+                financials.get("cash_flow", pd.DataFrame()),
+            ),
+        }
+
+    return {
+        "income_statement": pd.DataFrame(),
+        "balance_sheet": pd.DataFrame(),
+        "cash_flow": pd.DataFrame(),
+    }
+
+
+# This function defines the likely label names for each financial metric.
+def _metric_candidates(metric: str) -> List[str]:
+    mapping = {
+        "Revenue": ["Total Revenue", "Revenue"],
+        "Gross Profit": ["Gross Profit"],
+        "Net Income": ["Net Income", "Net Income From Continuing Ops"],
+        "Total Assets": ["Total Assets"],
+        "Total Liabilities": ["Total Liabilities Net Minority Interest", "Total Liabilities", "Total Debt"],
+        "Cash & Equivalents": [
+            "Cash And Cash Equivalents",
+            "Cash & Cash Equivalents",
+            "Cash And Cash Equivalents At Carrying Value",
+        ],
+        "Operating Cash Flow": ["Operating Cash Flow", "Net Cash Provided by Operating Activities"],
+        "Free Cash Flow": ["Free Cash Flow"],
+        "Total Equity": [
+            "Total Stockholders Equity",
+            "Stockholders Equity",
+            "Stockholders' Equity",
+            "Total Equity",
+        ],
+    }
+    return mapping.get(metric, [metric])
+
+
+# This function extracts a metric row from a statement table by trying likely label names.
+def _get_metric_series(frame: pd.DataFrame, metric_candidates: List[str]) -> pd.Series:
+    if frame is None or frame.empty:
+        return pd.Series(dtype=float)
+
+    for candidate in metric_candidates:
+        if candidate in frame.index:
+            series = frame.loc[candidate].copy()
+            series = series.dropna()
+            if not series.empty:
+                return series
+
+    return pd.Series(dtype=float)
+
+
+# This function converts timestamps into FY labels like FY2024.
+def _fmt_year_label(value: Any) -> str:
+    try:
+        return f"FY{pd.Timestamp(value).year}"
+    except Exception:
+        return str(value)
+
+
+# This helper selects the appropriate statement row for a financial metric.
+def _get_company_metric_series(company: Dict[str, Any], metric: str) -> pd.Series:
+    financials = _extract_financials(company)
+    income = financials.get("income_statement", pd.DataFrame())
+    balance = financials.get("balance_sheet", pd.DataFrame())
+    cashflow = financials.get("cash_flow", pd.DataFrame())
+
+    if metric in ["Revenue", "Gross Profit", "Net Income"]:
+        return _get_metric_series(income, _metric_candidates(metric))
+    if metric in ["Operating Cash Flow", "Free Cash Flow"]:
+        return _get_metric_series(cashflow, _metric_candidates(metric))
+    if metric in ["Total Assets", "Total Liabilities", "Cash & Equivalents", "Total Equity"]:
+        return _get_metric_series(balance, _metric_candidates(metric))
+    return pd.Series(dtype=float)
+
+
+# This helper gets a metric's values for explicitly requested fiscal years.
+def _get_company_metric_values_by_year(
+    company: Dict[str, Any],
+    metric: str,
+    target_years: List[int],
+) -> Dict[int, float]:
+    series = _get_company_metric_series(company, metric)
+    values_by_year = {}
+    for date, value in series.items():
+        try:
+            year = pd.Timestamp(date).year
+            if year in target_years:
+                values_by_year[year] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return values_by_year
+
+
+def get_common_fiscal_years(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+) -> List[int]:
+    """Return fiscal years represented in both companies' annual statements."""
+    def years_for(company: Dict[str, Any]) -> set[int]:
+        years = set()
+        for frame in _extract_financials(company).values():
+            if frame.empty:
+                continue
+            for value in frame.columns:
+                try:
+                    years.add(pd.Timestamp(value).year)
+                except (TypeError, ValueError):
+                    continue
+        return years
+
+    return sorted(years_for(company_a) & years_for(company_b))
+
+
+def get_common_analyst_periods(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+) -> List[str]:
+    """Return analyst snapshot periods available for both companies, newest first."""
+    def periods_for(company: Dict[str, Any]) -> set[str]:
+        ratings = company.get("ratings")
+        if ratings is None or ratings.empty or "period" not in ratings.columns:
+            return set()
+        return set(ratings["period"].dropna().astype(str))
+
+    common_periods = periods_for(company_a) & periods_for(company_b)
+
+    def months_ago(period: str) -> int:
+        try:
+            return abs(int(period.removesuffix("m")))
+        except ValueError:
+            return 10**6
+
+    return sorted(common_periods, key=months_ago)
+
+
+def analyst_period_label(period: str) -> str:
+    """Format an analyst snapshot period for the selector and chart title."""
+    months = abs(int(period.removesuffix("m")))
+    if months == 0:
+        return "Latest snapshot"
+    unit = "month" if months == 1 else "months"
+    return f"{months} {unit} ago"
+
+
+# This function compares each company's selected fiscal-year values independently.
+def build_core_metrics_table(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+    years: tuple[int, int] = (2024, 2025),
+) -> pd.DataFrame:
+    year_a, year_b = years
+    if year_a >= year_b:
+        raise ValueError("Select two fiscal years in chronological order.")
+    target_years = [year_a, year_b]
+    year_a_label = f"FY{year_a}"
+    year_b_label = f"FY{year_b}"
+    rows = []
+
+    for statement, metric in [
+        ("Income Statement", "Revenue"),
+        ("Income Statement", "Gross Profit"),
+        ("Income Statement", "Net Income"),
+        ("Balance Sheet", "Total Assets"),
+        ("Balance Sheet", "Total Liabilities"),
+        ("Balance Sheet", "Cash & Equivalents"),
+        ("Cash Flow Statement", "Operating Cash Flow"),
+    ]:
+        for company in (company_a, company_b):
+            values = _get_company_metric_values_by_year(company, metric, target_years)
+            value_a = values.get(year_a, np.nan)
+            value_b = values.get(year_b, np.nan)
+
+            if pd.isna(value_a) and pd.isna(value_b):
+                continue
+
+            abs_change = (
+                value_b - value_a
+                if pd.notna(value_a) and pd.notna(value_b)
+                else np.nan
+            )
+            growth_pct = (
+                (abs_change / value_a) * 100
+                if pd.notna(abs_change) and value_a != 0
+                else np.nan
+            )
+            rows.append(
+                {
+                    "Statement": statement,
+                    "Metric": metric,
+                    "Company": company["ticker"],
+                    year_a_label: value_a,
+                    year_b_label: value_b,
+                    "Abs_Change": abs_change,
+                    "Growth_Pct": growth_pct,
+                }
+            )
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Statement",
+                "Metric",
+                "Company",
+                year_a_label,
+                year_b_label,
+                "Abs_Change",
+                "Growth_Pct",
+            ]
+        )
+
+    return df
+
+
+# This function builds the grouped bar dataset used by the grouped bar chart.
+def build_grouped_bar_dataset(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+    metric: str,
+    years: tuple[int, int] = (2024, 2025),
+) -> Dict[str, Any]:
+    year_a, year_b = years
+    if year_a >= year_b:
+        raise ValueError("Select two fiscal years in chronological order.")
+    target_years = [year_a, year_b]
+    values_a = _get_company_metric_values_by_year(company_a, metric, target_years)
+    values_b = _get_company_metric_values_by_year(company_b, metric, target_years)
+
+    if not values_a and not values_b:
+        raise ValueError(f"Metric '{metric}' is not available for the selected companies.")
+
+    return {
+        "metric": metric,
+        "years": [f"FY{year_a}", f"FY{year_b}"],
+        "company_a": company_a["ticker"],
+        "company_b": company_b["ticker"],
+        "series_a": [values_a.get(year, np.nan) for year in target_years],
+        "series_b": [values_b.get(year, np.nan) for year in target_years],
+    }
+
+
+# This function normalizes a value into a 0-to-100 score using min-max scaling.
+def _normalize(value: Optional[float], ref_min: float, ref_max: float) -> Optional[float]:
+    if value is None or pd.isna(value):
+        return None
+    if ref_max == ref_min:
+        return 0.0
+    score = (value - ref_min) / (ref_max - ref_min) * 100
+    return min(100.0, max(0.0, score))
+
+
+def _average_balance_value(
+    company: Dict[str, Any],
+    metric: str,
+    fiscal_year: int,
+) -> Optional[float]:
+    values = _get_company_metric_values_by_year(company, metric, [fiscal_year - 1, fiscal_year])
+    previous = values.get(fiscal_year - 1)
+    current = values.get(fiscal_year)
+    if previous is None or current is None:
+        return None
+    return (previous + current) / 2
+
+
+# This function calculates actual business-model metrics for one fiscal year.
+def _get_company_metric_float(
+    company: Dict[str, Any],
+    metric: str,
+    fiscal_year: int = 2025,
+) -> Optional[float]:
+    if metric == "Gross Margin":
+        revenue = _get_company_metric_values_by_year(company, "Revenue", [fiscal_year]).get(fiscal_year)
+        gross_profit = _get_company_metric_values_by_year(company, "Gross Profit", [fiscal_year]).get(fiscal_year)
+        if revenue is None or gross_profit is None or revenue == 0:
+            return None
+        return float(gross_profit / revenue * 100)
+
+    if metric == "ROE":
+        net_income = _get_company_metric_values_by_year(company, "Net Income", [fiscal_year]).get(fiscal_year)
+        average_equity = _average_balance_value(company, "Total Equity", fiscal_year)
+        if net_income is None or average_equity is None or average_equity == 0:
+            return None
+        return float(net_income / average_equity * 100)
+
+    if metric == "Asset Turnover":
+        revenue = _get_company_metric_values_by_year(company, "Revenue", [fiscal_year]).get(fiscal_year)
+        average_assets = _average_balance_value(company, "Total Assets", fiscal_year)
+        if revenue is None or average_assets is None or average_assets == 0:
+            return None
+        return float(revenue / average_assets)
+
+    if metric == "Safety Ratio":
+        equity = _get_company_metric_values_by_year(company, "Total Equity", [fiscal_year]).get(fiscal_year)
+        assets = _get_company_metric_values_by_year(company, "Total Assets", [fiscal_year]).get(fiscal_year)
+        if equity is None or assets is None or assets == 0:
+            return None
+        return float(equity / assets * 100)
+
+    if metric == "FCF Margin":
+        fcf = _get_company_metric_values_by_year(company, "Free Cash Flow", [fiscal_year]).get(fiscal_year)
+        revenue = _get_company_metric_values_by_year(company, "Revenue", [fiscal_year]).get(fiscal_year)
+        if fcf is None or revenue is None or revenue == 0:
+            return None
+        return float(fcf / revenue * 100)
+
+    if metric == "Revenue Growth":
+        revenues = _get_company_metric_values_by_year(company, "Revenue", [fiscal_year - 1, fiscal_year])
+        current = revenues.get(fiscal_year)
+        prior = revenues.get(fiscal_year - 1)
+        if current is None or prior is None or prior == 0:
+            return None
+        return float((current - prior) / prior * 100)
+
+    return None
+
+
+# This function builds the normalized radar values used in the business model comparison.
+def build_business_model_radar_data(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+    fiscal_year: int = 2025,
+) -> Dict[str, Any]:
+    dimensions = [
+        ("Gross Margin", 25.0, 85.0, "%", "Gross Profit / Revenue"),
+        ("ROE", 5.0, 65.0, "%", "Net Income / Average Shareholders' Equity"),
+        ("Asset Turnover", 0.2, 2.5, "x", "Revenue / Average Total Assets"),
+        ("Safety Ratio", 10.0, 70.0, "%", "Shareholders' Equity / Total Assets"),
+        ("FCF Margin", 5.0, 35.0, "%", "Free Cash Flow / Revenue"),
+        (
+            "Revenue Growth",
+            -5.0,
+            25.0,
+            "%",
+            f"(FY{fiscal_year} Revenue - FY{fiscal_year - 1} Revenue) / FY{fiscal_year - 1} Revenue",
+        ),
+    ]
+
+    labels = [dimension[0] for dimension in dimensions]
+    values_a: List[Optional[float]] = []
+    values_b: List[Optional[float]] = []
+    actuals_a: List[Optional[float]] = []
+    actuals_b: List[Optional[float]] = []
+    missing_metrics = []
+
+    for label, ref_min, ref_max, _, _ in dimensions:
+        actual_a = _get_company_metric_float(company_a, label, fiscal_year)
+        actual_b = _get_company_metric_float(company_b, label, fiscal_year)
+
+        score_a = _normalize(actual_a, ref_min, ref_max)
+        score_b = _normalize(actual_b, ref_min, ref_max)
+        values_a.append(round(score_a, 1) if score_a is not None else None)
+        values_b.append(round(score_b, 1) if score_b is not None else None)
+        actuals_a.append(actual_a)
+        actuals_b.append(actual_b)
+
+        if actual_a is None:
+            missing_metrics.append({"company": company_a["ticker"], "metric": label})
+        if actual_b is None:
+            missing_metrics.append({"company": company_b["ticker"], "metric": label})
+
+    return {
+        "labels": labels,
+        "definitions": {dimension[0]: dimension[4] for dimension in dimensions},
+        "units": {dimension[0]: dimension[3] for dimension in dimensions},
+        "fiscal_year": fiscal_year,
+        "company_a": company_a["ticker"],
+        "company_b": company_b["ticker"],
+        "name_a": company_a.get("name") or company_a["ticker"],
+        "name_b": company_b.get("name") or company_b["ticker"],
+        "values_a": values_a,
+        "values_b": values_b,
+        "actuals_a": actuals_a,
+        "actuals_b": actuals_b,
+        "missing_metrics": missing_metrics,
+    }
+
+
+# This function creates the stacked analyst sentiment data used by the buy-hold-sell chart.
+def build_analyst_sentiment_data(
+    company_a: Dict[str, Any],
+    company_b: Dict[str, Any],
+    period: Optional[str] = None,
+) -> Dict[str, Any]:
+    selected_period = period
+    if selected_period is None:
+        available_periods = get_common_analyst_periods(company_a, company_b)
+        selected_period = available_periods[0] if available_periods else None
+
+    def sentiment_for(company: Dict[str, Any]) -> Dict[str, Any]:
+        ratings = company.get("ratings")
+        if ratings is None or ratings.empty:
+            return {"buy": 0, "hold": 0, "sell": 0, "consensus": "Unknown"}
+
+        if "period" in ratings.columns:
+            if selected_period is None:
+                latest = ratings.iloc[0]
+            else:
+                matching = ratings[ratings["period"].astype(str) == selected_period]
+                if matching.empty:
+                    raise ValueError(
+                        f"Analyst ratings for {company['ticker']} are unavailable "
+                        f"for {selected_period}."
+                    )
+                latest = matching.iloc[0]
+        else:
+            latest = ratings.iloc[-1]
+        buy = float(latest.get("strongBuy", 0)) + float(latest.get("buy", 0))
+        hold = float(latest.get("hold", 0))
+        sell = float(latest.get("sell", 0)) + float(latest.get("strongSell", 0))
+
+        total = buy + hold + sell
+        if total == 0:
+            consensus = "Unknown"
+        else:
+            counts = {"buy": buy, "hold": hold, "sell": sell}
+            consensus = max(counts, key=counts.get).title()
+
+        return {
+            "buy": buy,
+            "hold": hold,
+            "sell": sell,
+            "consensus": consensus,
+        }
+
+    return {
+        "company_a": company_a["ticker"],
+        "company_b": company_b["ticker"],
+        "period": selected_period,
+        "period_label": (
+            analyst_period_label(selected_period)
+            if selected_period is not None
+            else "Latest snapshot"
+        ),
+        "a": sentiment_for(company_a),
+        "b": sentiment_for(company_b),
+    }

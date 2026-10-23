@@ -4,6 +4,7 @@ import re
 from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import requests
@@ -12,54 +13,112 @@ import yfinance as yf
 from dotenv import load_dotenv
 from src import transformation
 
+# This part loads environment variables from the project-level .env file if present.
 load_dotenv(Path(__file__).resolve().parent.parent / "secrets.env")
 LOGGER = logging.getLogger(__name__)
 
-def clean_ticker(ticker:str) -> str:
+
+# This function keeps the original ticker-cleaning behavior.
+def clean_ticker(ticker: str) -> str:
     """Tidy up the user's input, e.g. ' mu ' -> 'MU'. Raises ValueError if empty."""
     ticker = (ticker or "").strip().upper()
     if not ticker:
         raise ValueError("Please enter a ticker symbol.")
     return ticker
 
-def get_financials(ticker:str) -> dict:
+
+# This function preserves the original single-company financial statements logic.
+def get_financials(ticker: str) -> dict:
     """
     From notebooks/filings.ipynb.
     Returns a dict of DataFrames: income statement, balance sheet, cash flow.
     """
     stock = yf.Ticker(clean_ticker(ticker))
     result = {
-        "Income Statement":stock.financials,
-        "Balance Sheet":stock.balance_sheet,
-        "Cash Flow":stock.cashflow
+        "Income Statement": stock.financials,
+        "Balance Sheet": stock.balance_sheet,
+        "Cash Flow": stock.cashflow,
     }
     if all(df is None or df.empty for df in result.values()):
         raise ValueError(f"No financial statements found for {ticker}.")
     return result
 
-def get_yahoo_news(ticker:str, limit:int=5) -> list:
+
+# This function preserves the original Yahoo Finance news logic.
+def get_yahoo_news(ticker: str, limit: int = 5) -> list:
     """
     From notebooks/news.ipynb.
-    Returns a list of dicts with 'title' and 'description'.
+    Returns news articles in the schema used by the dashboard.
     """
-    stock = yf.Ticker(clean_ticker(ticker))
+    clean_symbol = clean_ticker(ticker)
+    search_type = getattr(yf, "Search", None)
+    if search_type is not None:
+        raw_articles = search_type(
+            clean_symbol,
+            news_count=limit,
+            max_results=limit,
+        ).news
+    else:
+        raw_articles = yf.Ticker(clean_symbol).news
+
     articles = []
-    for article in (stock.news or [])[:limit]:
-        content = article.get("content", {})
-        description = content.get("description") or content.get("summary") or ""
-        # Yahoo sometimes returns HTML tags in the description; strip them.
+    for article in (raw_articles or [])[:limit]:
+        content = article.get("content") or {}
+        description = (
+            article.get("description")
+            or article.get("summary")
+            or content.get("description")
+            or content.get("summary")
+            or ""
+        )
         description = re.sub(r"<[^>]+>", "", description)
+        canonical_url = (
+            article.get("link")
+            or content.get("canonicalUrl")
+            or content.get("clickThroughUrl")
+            or {}
+        )
+        created_at = (
+            article.get("pubDate")
+            or content.get("pubDate")
+            or content.get("displayTime")
+        )
+        publish_time = article.get("providerPublishTime")
+        if not created_at and publish_time:
+            created_at = pd.to_datetime(
+                publish_time,
+                unit="s",
+                utc=True,
+            ).isoformat()
+        title = article.get("title") or content.get("title") or "No title"
+        if isinstance(canonical_url, dict):
+            canonical_url = canonical_url.get("url", "")
         articles.append(
             {
-                "title":content.get("title", "No title"),
-                "description":description[:200] or "No description"
+                "title": title,
+                "description": description[:200] or "No description",
+                "headline": title,
+                "summary": description[:200],
+                "created_at": created_at or "",
+                "url": canonical_url if isinstance(canonical_url, str) else "",
             }
         )
     if not articles:
         raise ValueError(f"No news found for {ticker}.")
     return articles
 
-def get_alpaca_news(ticker:str, limit:int=5) -> list:
+
+def get_news(ticker: str, limit: int = 5) -> list:
+    """Load news from Alpaca when configured, otherwise use Yahoo Finance."""
+    if os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"):
+        return get_alpaca_news(ticker, limit)
+
+    LOGGER.info("Alpaca credentials are not configured; using Yahoo Finance news for %s.", ticker)
+    return get_yahoo_news(ticker, limit)
+
+
+# This function preserves the original Alpaca news logic.
+def get_alpaca_news(ticker: str, limit: int = 5) -> list:
     """
     Returns the raw Alpaca news articles (original schema) for the ticker.
     Reads credentials from the ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables.
@@ -70,27 +129,29 @@ def get_alpaca_news(ticker:str, limit:int=5) -> list:
     secret_key = os.environ.get("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
         raise ValueError("Alpaca credentials not set. Define ALPACA_API_KEY and ALPACA_SECRET_KEY.")
-    
+
     headers = {
-        "APCA-API-KEY-ID":api_key,
-        "APCA-API-SECRET-KEY":secret_key
+        "APCA-API-KEY-ID": api_key,
+        "APCA-API-SECRET-KEY": secret_key,
     }
-    
+
     params = {
-        "symbols":clean_ticker(ticker),
-        "limit":limit,
-        "sort":"desc"
+        "symbols": clean_ticker(ticker),
+        "limit": limit,
+        "sort": "desc",
     }
-    
+
     response = requests.get(ALPACA_NEWS_URL, headers=headers, params=params, timeout=10)
     response.raise_for_status()
-    
+
     articles = response.json().get("news", [])
     if not articles:
         raise ValueError(f"No news found for {ticker}.")
     return articles
 
-def get_price(ticker:str) -> float:
+
+# This function preserves the original price lookup logic.
+def get_price(ticker: str) -> float:
     """
     From notebooks/stock_price_ratings.ipynb. Returns the current price.
     """
@@ -125,7 +186,9 @@ def get_latest_price(ticker:str, market_open:bool) -> float:
         raise ValueError(f"No latest price found for {ticker}.")
     return float(prices.iloc[-1])
 
-def get_analyst_ratings(ticker:str) -> pd.DataFrame:
+
+# This function preserves the original analyst recommendations logic.
+def get_analyst_ratings(ticker: str) -> pd.DataFrame:
     """
     From notebooks/stock_price_ratings.ipynb. Returns a DataFrame of recommendations.
     """
@@ -259,3 +322,58 @@ def get_recession_periods() -> list[dict]:
         # This part logs FRED failures and uses the documented fallback dates.
         LOGGER.warning("Could not load FRED recession data; using fallback dates: %s", error)
         return recession_fallback_periods()
+
+# This part adds the new helper functions for the two-company comparison dashboard.
+# This part is separate from the old functions so the existing UI/news code still works unchanged.
+
+# This function safely converts a value-like object to a float.
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# This function returns the current price in a way that is friendly to the dashboard.
+def get_current_price(ticker: str) -> Optional[float]:
+    ticker = clean_ticker(ticker)
+    stock = yf.Ticker(ticker)
+    info = stock.info or {}
+
+    price = info.get("currentPrice")
+    if price is not None:
+        return _safe_float(price)
+
+    hist = stock.history(period="5d")
+    if hist.empty:
+        return None
+
+    return _safe_float(hist["Close"].iloc[-1])
+
+
+# This function builds a normalized company snapshot for two-company comparisons.
+def get_company_snapshot(ticker: str) -> Dict[str, Any]:
+    ticker = clean_ticker(ticker)
+    stock = yf.Ticker(ticker)
+
+    snapshot = {
+        "ticker": ticker,
+        "name": (stock.info or {}).get("longName") or ticker,
+        "financials": get_financials(ticker),
+        "price": get_current_price(ticker),
+        "ratings": get_analyst_ratings(ticker),
+        "info": stock.info or {},
+    }
+
+    return snapshot
+
+
+# This function returns both company snapshots in a dictionary keyed by ticker.
+def get_company_pair_data(ticker_a: str, ticker_b: str) -> Dict[str, Dict[str, Any]]:
+    a = clean_ticker(ticker_a)
+    b = clean_ticker(ticker_b)
+
+    return {
+        a: get_company_snapshot(a),
+        b: get_company_snapshot(b),
+    }
