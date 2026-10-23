@@ -100,6 +100,31 @@ def get_price(ticker:str) -> float:
         raise ValueError(f"No current price found for {ticker}.")
     return price
 
+
+def get_latest_price(ticker:str, market_open:bool) -> float:
+    """Fetch the latest intraday price or the most recent close.
+
+    Inputs:
+    - ticker: stock symbol
+    - market_open: whether regular US trading is open
+
+    Outputs:
+    - Latest available price
+    """
+    # This part selects intraday or daily history based on US market hours.
+    stock = yf.Ticker(clean_ticker(ticker))
+    if market_open:
+        history = stock.history(period="1d", interval="1m", prepost=False)
+    else:
+        history = stock.history(period="5d", interval="1d", prepost=False)
+    # This part validates the returned closing-price series.
+    if history.empty or "Close" not in history:
+        raise ValueError(f"No latest price found for {ticker}.")
+    prices = history["Close"].dropna()
+    if prices.empty:
+        raise ValueError(f"No latest price found for {ticker}.")
+    return float(prices.iloc[-1])
+
 def get_analyst_ratings(ticker:str) -> pd.DataFrame:
     """
     From notebooks/stock_price_ratings.ipynb. Returns a DataFrame of recommendations.

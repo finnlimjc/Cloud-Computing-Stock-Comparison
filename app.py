@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from calendar import monthrange
+from datetime import date, datetime, timezone
 from html import escape
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -13,18 +15,25 @@ from yfinance.exceptions import YFException
 from src import input_data, plots, storage, transformation
 
 THIRTY_MINUTES = 1800
+LATEST_PRICE_TTL = 60
+NEW_YORK = ZoneInfo("America/New_York")
+SINGAPORE = ZoneInfo("Asia/Singapore")
 RANGE_OPTIONS = {
     "1 year": 1,
     "5 years": 5,
     "10 years": 10,
     "20 years": 20,
 }
+MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
 STOCK_COLORS = {
     "A": plots.STOCK_A_COLOR,
     "B": plots.STOCK_B_COLOR,
 }
 METRIC_HELP = {
-    "Latest price": "The most recent closing price available in this time range.",
+    "Latest price": "The latest intraday price, or the most recent close when the US market is closed.",
     "Return over period": "The percentage change from the first to the last price in this range.",
     "Max drawdown": (
         "The biggest fall from a peak to a low in the period. If you had bought "
@@ -57,6 +66,42 @@ def load_prices(ticker:str, start_date:date, end_date:date) -> pd.Series:
     """
     # This part delegates the request to the price-history provider.
     return input_data.get_price_history(ticker, start_date, end_date)
+
+
+@st.cache_data(ttl=LATEST_PRICE_TTL, show_spinner=False)
+def load_latest_price(ticker:str, market_open:bool) -> tuple[float, datetime]:
+    """Load the latest available price and its fetch time.
+
+    Inputs:
+    - ticker: stock symbol
+    - market_open: whether regular US trading is open
+
+    Outputs:
+    - Latest price and UTC fetch time
+    """
+    # This part fetches and timestamps the latest available price.
+    price = input_data.get_latest_price(ticker, market_open)
+    return price, datetime.now(timezone.utc)
+
+
+def us_market_is_open(now:datetime | None=None) -> bool:
+    """Check weekday US regular trading hours.
+
+    Inputs:
+    - now: optional time to check
+
+    Outputs:
+    - Whether the US market is open
+    """
+    # This part converts the supplied time to US Eastern time.
+    eastern_now = datetime.now(NEW_YORK) if now is None else now
+    if eastern_now.tzinfo is None:
+        eastern_now = eastern_now.replace(tzinfo=NEW_YORK)
+    else:
+        eastern_now = eastern_now.astimezone(NEW_YORK)
+    # This part checks weekdays and regular trading hours.
+    market_time = (eastern_now.hour, eastern_now.minute)
+    return eastern_now.weekday() < 5 and (9, 30) <= market_time < (16, 0)
 
 
 @st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
@@ -253,6 +298,8 @@ def plain_words(result:dict) -> str:
     # This part selects the single-stock or comparison summary path.
     stocks = result["stocks"]
     range_label = result["range_label"]
+    if range_label == "Custom":
+        range_label = f"{result['start_date']:%Y-%m-%d} to {result['end_date']:%Y-%m-%d}"
     if result["comparison"]:
         ordered = [stocks[role] for role in ("A", "B")]
         tickers = [stock["ticker"] for stock in ordered]
@@ -301,6 +348,21 @@ def metric_value(name:str, value:float) -> str:
     if name == "Max drawdown":
         return f"{value:.1%}"
     return f"{value:.2f}"
+
+
+def render_metric_values(stocks:dict, values:dict[str, str]) -> None:
+    """Render stock values as vertically stacked metrics.
+
+    Inputs:
+    - stocks: analyzed stock records keyed by role
+    - values: formatted metric values keyed by ticker
+
+    Outputs:
+    - None
+    """
+    # This part displays each ticker and value on its own line.
+    for stock in stocks.values():
+        st.metric(stock["ticker"], values[stock["ticker"]])
 
 
 def make_analysis_markdown(
@@ -459,43 +521,102 @@ def render_metrics(result:dict) -> None:
     Outputs:
     - None
     """
-    # This part defines the four metrics shown for each stock.
-    metric_names = [
-        "Latest price",
-        "Return over period",
-        "Max drawdown",
-        "Sharpe ratio",
-    ]
+    # This part prepares a refreshable price card and three historical metrics.
+    metric_names = ["Return over period", "Max drawdown", "Sharpe ratio"]
     single_stock = not result["comparison"]
-    # This part scopes a larger value style to the single-stock cards.
-    with st.container(key="single_stock_metric_cards" if single_stock else "comparison_metric_cards"):
-        if single_stock:
-            st.markdown(
-                """
-                <style>
-                .st-key-single_stock_metric_cards [data-testid="stMetricValue"] {
-                    font-size: 1.8rem;
+    card_height = 230 if not single_stock else 170
+    # This part displays the refresh timestamp and market status above the cards.
+    status_placeholder = st.empty()
+    cards = st.columns(4, gap="small")
+    latest_card_placeholder = cards[0].empty()
+    # This part refreshes only the latest-price card during market hours.
+    render_latest_price_card(result, latest_card_placeholder, status_placeholder, card_height)
+    # This part renders the selected-range metrics in equal-height cards.
+    for card, name in zip(cards[1:], metric_names):
+        with card:
+            with st.container(border=True, height=card_height):
+                st.markdown(f"**{name}**", help=METRIC_HELP[name])
+                metric_values = {
+                    stock["ticker"]: metric_value(name, stock["metrics"][name])
+                    for stock in result["stocks"].values()
                 }
-                </style>
-                """,
-                unsafe_allow_html=True,
+                render_metric_values(result["stocks"], metric_values)
+    # This part labels the selected range's closing price separately from today's price.
+    if result["end_date"] < date.today():
+        range_prices = [
+            f"{stock['ticker']} ${stock['price_at_end_range']:,.2f} (close {stock['price_at_end_date']:%Y-%m-%d})"
+            for stock in result["stocks"].values()
+        ]
+        st.caption("Price at end of range: " + " · ".join(range_prices))
+
+
+def render_latest_price_card(result:dict, card_placeholder, status_placeholder, card_height:int) -> None:
+    """Render latest stock prices in a refreshable metric card.
+
+    Inputs:
+    - result: dashboard analysis result
+    - card_placeholder: location reserved for the latest-price card
+    - status_placeholder: location reserved for the update and market status
+    - card_height: shared height for metric cards
+
+    Outputs:
+    - None
+    """
+    # This part sets the refresh schedule from the current market status.
+    scheduled_market_open = us_market_is_open()
+
+    @st.fragment(run_every=60 if scheduled_market_open else None, key="latest-price-card")
+    def render_fragment() -> None:
+        """Render the latest-price card and its update status.
+
+        Inputs:
+        - None
+
+        Outputs:
+        - None
+        """
+        # This part stops scheduled refreshes after the market closes.
+        market_open = us_market_is_open()
+        if scheduled_market_open and not market_open:
+            st.rerun(scope="app")
+        # This part loads each ticker's cached latest price.
+        latest_prices = {}
+        for stock in result["stocks"].values():
+            try:
+                price, fetched_at = load_latest_price(stock["ticker"], market_open)
+                latest_prices[stock["ticker"]] = (price, fetched_at)
+            except Exception as error:
+                latest_prices[stock["ticker"]] = error
+        # This part displays the last successful update time and market status.
+        successful_updates = [
+            value[1] for value in latest_prices.values() if not isinstance(value, Exception)
+        ]
+        if successful_updates:
+            updated_at = max(successful_updates).astimezone(SINGAPORE)
+            status_placeholder.caption(
+                f"Last updated: {updated_at:%H:%M} (Singapore time) · "
+                f"US market {'open' if market_open else 'closed'}"
             )
-        # This part renders each metric with mode-appropriate card dimensions.
-        cards = st.columns(4, gap="small")
-        for card, name in zip(cards, metric_names):
-            with card:
-                with st.container(border=True, height=230 if not single_stock else 170):
-                    # This part shows one card title with its metric explanation.
-                    st.markdown(f"**{name}**", help=METRIC_HELP[name])
-                    if single_stock:
-                        # This part adds one short caption under each single-stock value.
-                        stock = next(iter(result["stocks"].values()))
-                        st.metric(stock["ticker"], metric_value(name, stock["metrics"][name]))
-                        st.caption(METRIC_CAPTIONS[name])
-                    else:
-                        # This part keeps comparison values in the existing layout.
-                        for stock in result["stocks"].values():
-                            st.metric(stock["ticker"], metric_value(name, stock["metrics"][name]))
+        else:
+            status_placeholder.caption(
+                f"Last updated: unavailable · US market {'open' if market_open else 'closed'}"
+            )
+        # This part renders the latest prices without changing card dimensions.
+        card_placeholder.empty()
+        with card_placeholder.container():
+            with st.container(border=True, height=card_height):
+                st.markdown("**Latest price**", help=METRIC_HELP["Latest price"])
+                price_values = {}
+                for stock in result["stocks"].values():
+                    latest = latest_prices[stock["ticker"]]
+                    price_values[stock["ticker"]] = (
+                        "Unavailable"
+                        if isinstance(latest, Exception)
+                        else metric_value("Latest price", latest[0])
+                    )
+                render_metric_values(result["stocks"], price_values)
+
+    render_fragment()
 
 
 def render_news(result:dict) -> None:
@@ -573,6 +694,28 @@ def render_news_article(article:dict, comparison:bool) -> None:
     except (TypeError, ValueError):
         when_column.caption("Date unavailable")
     st.divider()
+
+
+def resolve_month_date(year:int, month:int, day:int, earliest_date:date, today:date) -> tuple[date, bool]:
+    """Resolve a selected calendar date within the available history.
+
+    Inputs:
+    - year: selected calendar year
+    - month: selected calendar month
+    - day: selected calendar day
+    - earliest_date: earliest available date
+    - today: latest available date
+
+    Outputs:
+    - Resolved date and whether the selection needed adjustment
+    """
+    # This part adjusts days that do not exist in the selected month.
+    last_day = monthrange(year, month)[1]
+    selected_day = min(day, last_day)
+    selected_date = date(year, month, selected_day)
+    # This part clamps the selected date to the available history.
+    resolved_date = min(max(selected_date, earliest_date), today)
+    return resolved_date, selected_day != day or resolved_date != selected_date
 
 
 def render_dashboard_chart(result:dict) -> None:
@@ -658,7 +801,16 @@ def render_analysis_form(today:date) -> None:
     Outputs:
     - None
     """
-    # This part renders the stock and quick-range inputs.
+    # This part establishes the available years and date boundaries.
+    minimum_date:date = (pd.Timestamp(today) - pd.DateOffset(years=20)).date()
+    maximum_date:date = today
+    available_years = list(range(minimum_date.year, today.year + 1))
+    # This part defines defaults matching today's date and the 20-year start date.
+    start_month_index = minimum_date.month - 1
+    start_day_index = minimum_date.day - 1
+    current_month_index = today.month - 1
+    current_day_index = today.day - 1
+    # This part renders ticker, range, and date inputs in one form.
     with st.form("stock_analysis_form"):
         ticker_a = st.text_input("Stock A", value="AAPL")
         ticker_b = st.text_input(
@@ -666,22 +818,43 @@ def render_analysis_form(today:date) -> None:
             value="",
             help="Leave empty to look at one stock.",
         )
-        range_label = st.selectbox(
-            "Time range",
-            list(RANGE_OPTIONS),
-            index=3,
-        )
+        range_label = st.selectbox("Time range", [*RANGE_OPTIONS, "Custom"], index=3)
+        # This part renders the Start year, month, and day selectors side by side.
+        start_year_column, start_month_column, start_day_column = st.columns(3)
+        start_year = start_year_column.selectbox("Start year", available_years, index=0, key="custom_start_year")
+        start_month = start_month_column.selectbox("Start month", MONTHS, index=start_month_index, key="custom_start_month")
+        start_day = start_day_column.selectbox("Start day", range(1, 32), index=start_day_index, key="custom_start_day")
+        # This part renders the End year, month, and day selectors side by side.
+        end_year_column, end_month_column, end_day_column = st.columns(3)
+        end_year = end_year_column.selectbox("End year", available_years, index=len(available_years) - 1, key="custom_end_year")
+        end_month = end_month_column.selectbox("End month", MONTHS, index=current_month_index, key="custom_end_month")
+        end_day = end_day_column.selectbox("End day", range(1, 32), index=current_day_index, key="custom_end_day")
         run = st.form_submit_button("Run", type="primary", use_container_width=True)
-    # This part derives the quick-range dates and loads the requested analysis.
+    # This part derives the dates selected by the custom or quick-range option.
     if run:
-        years = RANGE_OPTIONS[range_label]
-        start_date = (pd.Timestamp(today) - pd.DateOffset(years=years)).date()
+        if range_label == "Custom":
+            start_date, start_adjusted = resolve_month_date(start_year, MONTHS.index(start_month) + 1, start_day, minimum_date, maximum_date)
+            end_date, end_adjusted = resolve_month_date(end_year, MONTHS.index(end_month) + 1, end_day, minimum_date, maximum_date)
+            # This part reports calendar-day or date-boundary adjustments.
+            if start_adjusted:
+                st.info(f"Start date adjusted to {start_date:%Y-%m-%d} to fit the calendar and available date range.")
+            if end_adjusted:
+                st.info(f"End date adjusted to {end_date:%Y-%m-%d} to fit the calendar and available date range.")
+        else:
+            years_back = RANGE_OPTIONS[range_label]
+            start_date = (pd.Timestamp(today) - pd.DateOffset(years=years_back)).date()
+            end_date = today
+        # This part rejects invalid custom ranges before requesting market data.
+        if start_date >= end_date or (end_date - start_date).days < 60:
+            st.warning("Choose a start date before the end date, at least 60 days apart.")
+            return
+        # This part loads the requested analysis for the selected dates.
         with st.spinner("Loading prices and news..."):
             result, warnings = load_analysis(
                 ticker_a,
                 ticker_b,
                 start_date,
-                today,
+                end_date,
                 range_label,
             )
         for warning in warnings:
