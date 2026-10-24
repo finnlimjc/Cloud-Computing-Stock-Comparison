@@ -1,8 +1,8 @@
 # Cloud Computing Stock Comparison
 
-A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Enter Stock A and optionally Stock B, choose a quick time range, and click **Run**.
+A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Type up to five tickers (press Enter after each), choose a quick time range (or a custom date range), and click **Run**.
 
-The dashboard supports single-stock and comparison modes, with four summary metrics, an "In plain words" summary, recent news, and price/volatility charts. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
+The dashboard supports single-stock and comparison modes, with five metric cards (latest price, return, max drawdown, current drawdown, Sharpe ratio) for one stock or a comparison table for several, recent news with summaries and a ticker filter, price/volatility/drawdown charts, and a calendar-year returns chart. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
 
 The available time ranges are **1 year**, **5 years**, **10 years**, **20 years** (default), and **Custom** (any start and end date within the last 20 years, at least 60 days apart). Charts and metrics use daily closing prices; the **Latest price** card refreshes every 60 seconds while the US market is open.
 
@@ -13,7 +13,6 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
    ```bash
    python -m venv .venv
    .venv\Scripts\activate
-   python -m pip install --upgrade pip
    python -m pip install -r requirements.txt
    ```
 
@@ -41,6 +40,12 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
 ## Save and View Analyses
 
 After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
+
+### How timestamps are shown
+
+- News providers send publication times in ISO 8601 UTC, such as `2026-10-24T07:28:35Z` (`T` separates the date from the time, `Z` means UTC). All timestamps are converted based on your computer's local time.
+- **Dashboard news cards** show a relative age such as `9h ago` or `Yesterday`, counted from the current time, so it is the same in any time zone. Articles older than a week show their date.
+- **Saved reports** show exact times with the UTC offset, such as `2026-10-24 15:28:35 UTC+08:00`. This applies to the **Created** line and to each news item. A time that cannot be read is saved unchanged.
 
 ## Project structure
 

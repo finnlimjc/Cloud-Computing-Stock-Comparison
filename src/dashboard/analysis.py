@@ -1,18 +1,39 @@
+import re
 from datetime import date
+from string import ascii_uppercase
 
 import pandas as pd
 import requests
 from yfinance.exceptions import YFException
 
 from src.analysis import transformation
+from src.dashboard.config import MAX_STOCKS
 from src.dashboard.loaders import load_news, load_prices
 from src.data import price_ratings
+
+def parse_tickers(text:str) -> tuple[list[str], list[str]]:
+    """Split comma- or space-separated symbols into unique upper-case tickers, capped at MAX_STOCKS.
+    
+    Inputs:
+    - text: user-entered ticker symbols
+    
+    Outputs:
+    - Tickers in entry order and warnings about dropped entries
+    """
+    tickers = list(dict.fromkeys(re.split(r"[,\s]+", text.upper().strip())))
+    tickers = [ticker for ticker in tickers if ticker]
+    warnings = []
+    if not tickers:
+        warnings.append("Please enter a ticker symbol.")
+    if len(tickers) > MAX_STOCKS:
+        warnings.append(f"Only the first {MAX_STOCKS} tickers are used; ignored {', '.join(tickers[MAX_STOCKS:])}.")
+    return tickers[:MAX_STOCKS], warnings
 
 def analyze_ticker(role:str, ticker_input:str, start_date:date, end_date:date) -> tuple[dict | None, str | None]:
     """Load and summarize one stock's price history.
     
     Inputs:
-    - role: stock's comparison role
+    - role: letter for the stock's slot in the comparison ("A" for the first ticker, "B" for the second, ...), used to look up its color
     - ticker_input: user-entered symbol
     - start_date: inclusive first date
     - end_date: inclusive last date
@@ -21,10 +42,6 @@ def analyze_ticker(role:str, ticker_input:str, start_date:date, end_date:date) -
     - Stock analysis and optional warning
     """
     label = ticker_input.strip().upper()
-    if not label:
-        warning = "Stock A: Please enter a ticker symbol." if role == "A" else None
-        return None, warning
-    
     try:
         ticker = price_ratings.clean_ticker(ticker_input)
         prices = load_prices(ticker, start_date, end_date).dropna()
@@ -71,12 +88,15 @@ def collect_news(stocks:dict) -> tuple[list[dict], str]:
     error_message = "; ".join(errors)
     return articles, error_message
 
-def load_analysis(ticker_a:str, ticker_b:str, start_date:date, end_date:date, range_label:str) -> tuple[dict, list[str]]:
+def load_analysis(tickers:list[str], start_date:date, end_date:date, range_label:str) -> tuple[dict, list[str]]:
     """Load available stock analyses and their news.
     
+    Each ticker is assigned a role by entry position: "A" for the first, "B" for the second, and so on.
+    Roles key the result's stocks and their colors, so a ticker that fails to load is skipped
+    without changing the roles of the others.
+    
     Inputs:
-    - ticker_a: first user-entered symbol
-    - ticker_b: optional second user-entered symbol
+    - tickers: unique user-entered symbols, at most MAX_STOCKS
     - start_date: inclusive first date
     - end_date: inclusive last date
     - range_label: selected quick-range option
@@ -84,10 +104,10 @@ def load_analysis(ticker_a:str, ticker_b:str, start_date:date, end_date:date, ra
     Outputs:
     - Analysis result and ticker warnings
     """
-    # Analyze each ticker
+    # Analyze each ticker where ascii_uppercase is the role "A", "B"
     stocks = {}
     warnings = []
-    for role, ticker_input in (("A", ticker_a), ("B", ticker_b)):
+    for role, ticker_input in zip(ascii_uppercase, tickers):
         stock, warning = analyze_ticker(role, ticker_input, start_date, end_date)
         if stock:
             stocks[role] = stock
@@ -97,14 +117,12 @@ def load_analysis(ticker_a:str, ticker_b:str, start_date:date, end_date:date, ra
         return {}, warnings
     
     # Align a comparison on shared history
-    if len(stocks) == 2 and stocks["A"]["ticker"] == stocks["B"]["ticker"]:
-        stocks.pop("B")
-        warnings.append("Stock A and Stock B are the same ticker; showing one stock.")
-    if len(stocks) == 2:
+    if len(stocks) > 1:
         aligned = transformation.common_start_prices({role: stock["prices"] for role, stock in stocks.items()})
         if any(prices.empty for prices in aligned.values()):
-            warnings.append("The selected stocks have no overlapping price history.")
-            stocks.pop("B")
+            warnings.append("The selected stocks have no overlapping price history; showing the first stock only.")
+            first_role = next(iter(stocks))
+            stocks = {first_role: stocks[first_role]}
         else:
             for role, stock in stocks.items():
                 stock["prices"] = aligned[role]
@@ -122,10 +140,10 @@ def load_analysis(ticker_a:str, ticker_b:str, start_date:date, end_date:date, ra
         "start_date": start_date,
         "end_date": end_date,
         "range_label": range_label,
-        "comparison": len(stocks) == 2,
+        "comparison": len(stocks) > 1,
         "news": articles,
         "news_error": news_error,
-        "input_stock_b": bool(ticker_b.strip())
+        "n_requested": len(tickers)
     }
     return result, warnings
 
@@ -140,7 +158,7 @@ def plain_words(result:dict) -> str:
         summary = transformation.plain_words_single(stock["ticker"], stock["prices"], range_label)
         return summary
     
-    ordered = [stocks[role] for role in ("A", "B")]
+    ordered = list(stocks.values())
     tickers = [stock["ticker"] for stock in ordered]
     returns = {stock["ticker"]: stock["metrics"]["Return over period"] for stock in ordered}
     volatilities = {stock["ticker"]: stock["metrics"]["Average volatility"] for stock in ordered}

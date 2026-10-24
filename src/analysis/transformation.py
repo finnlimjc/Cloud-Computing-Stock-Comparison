@@ -8,6 +8,10 @@ RISK_FREE_RATE = 0.0
 TRADING_DAYS_PER_YEAR = 252
 VOLATILITY_WINDOW = 30
 
+# Calendar years starting after Jan 7 or ending before Dec 24 are treated as partial
+PARTIAL_YEAR_START = (1, 7)
+PARTIAL_YEAR_END = (12, 24)
+
 # Plain-language summaries
 SIMILARITY_TOLERANCE = 0.005
 
@@ -38,6 +42,33 @@ def period_return(prices:pd.Series) -> float:
         return 0.0
     total_return = float(clean.iloc[-1] / clean.iloc[0] - 1)
     return total_return
+
+def calendar_year_returns(prices:pd.Series) -> pd.Series:
+    """Calculate each calendar year's return, labelling years only partly covered with a trailing asterisk.
+    
+    Inputs:
+    - prices: daily prices
+    
+    Outputs:
+    - Returns indexed by year label; the first year is measured from the first available price
+    """
+    clean = prices.dropna()
+    year_end = clean.groupby(clean.index.year).last()
+    year_start = year_end.shift(1)
+    year_start.iloc[0] = clean.iloc[0]
+    returns = year_end / year_start - 1
+    
+    first_year = year_end.index[0]
+    last_year = year_end.index[-1]
+    partial_start = (clean.index[0].month, clean.index[0].day) > PARTIAL_YEAR_START
+    partial_end = (clean.index[-1].month, clean.index[-1].day) < PARTIAL_YEAR_END
+    labels = [
+        f"{year}*" if (year == first_year and partial_start) or (year == last_year and partial_end) else str(year)
+        for year in returns.index
+    ]
+    returns.index = labels
+    returns.name = "Calendar-year return"
+    return returns
 
 def sharpe_ratio(prices:pd.Series, risk_free_rate:float=RISK_FREE_RATE) -> float:
     """Calculate the annualized Sharpe ratio from daily returns.
@@ -100,6 +131,7 @@ def summarize_prices(prices:pd.Series) -> dict[str, float]:
         "Latest price": float(clean.iloc[-1]),
         "Return over period": period_return(clean),
         "Max drawdown": float(compute_drawdown(clean).min()),
+        "Current drawdown": float(compute_drawdown(clean).iloc[-1]),
         "Sharpe ratio": sharpe_ratio(clean),
         "Average volatility": average_volatility(clean)
     }
@@ -112,6 +144,18 @@ def _comparison_phrase(first:str, second:str, first_value:float, second_value:fl
     leader, other = (first, second) if first_leads else (second, first)
     phrase = difference_text.format(leader=leader, other=other)
     return phrase
+
+def _plain_words_ranking(tickers:list[str], returns:dict[str, float], volatilities:dict[str, float], drawdowns:dict[str, float], period_label:str) -> str:
+    """Summarize three or more stocks by naming the best and worst on growth, swings and falls."""
+    best_return = max(tickers, key=returns.get)
+    worst_return = min(tickers, key=returns.get)
+    most_volatile = max(tickers, key=volatilities.get)
+    deepest_fall = min(tickers, key=drawdowns.get)
+    summary = (
+        f"Over {period_label}, {best_return} grew the most and {worst_return} the least; "
+        f"{most_volatile} had the most daily price swings, and {deepest_fall} fell furthest at its worst."
+    )
+    return summary
 
 def plain_words_comparison(tickers:list[str], returns:dict[str, float], volatilities:dict[str, float], drawdowns:dict[str, float], period_label:str) -> str:
     """Summarize measured growth and risk without making a recommendation.
@@ -126,6 +170,8 @@ def plain_words_comparison(tickers:list[str], returns:dict[str, float], volatili
     Outputs:
     - Plain-language comparison summary
     """
+    if len(tickers) > 2:
+        return _plain_words_ranking(tickers, returns, volatilities, drawdowns, period_label)
     first, second = tickers
     
     growth = _comparison_phrase(
@@ -155,8 +201,8 @@ def plain_words_single(ticker:str, prices:pd.Series, period_label:str) -> str:
         return f"There is not enough price data to summarize {ticker} over {period_label}."
     maximum_drawdown = abs(float(compute_drawdown(clean).min()))
     summary = (
-        f"Over {period_label}, {ticker} went from ${clean.iloc[0]:,.2f} to "
-        f"${clean.iloc[-1]:,.2f} a share. At its worst it was "
+        f"Over {period_label}, {ticker} went from {clean.iloc[0]:,.2f} to "
+        f"{clean.iloc[-1]:,.2f} a share. At its worst it was "
         f"{maximum_drawdown:.1%} below its previous high."
     )
     return summary

@@ -2,6 +2,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 # Storage location
 ANALYSES_DIR = Path(__file__).resolve().parents[2] / "analyses-data"
 
@@ -16,6 +18,19 @@ METADATA_PATTERN = re.compile(r"^- ([^:]+):\s*(.*)$")
 def _safe_component(value:str) -> str:
     safe = FILENAME_UNSAFE_PATTERN.sub("-", value.strip()).strip("-")
     return safe or "stock"
+
+def utc_offset(moment:datetime) -> str:
+    """Format a datetime's UTC offset as UTC+08:00."""
+    offset = moment.astimezone().strftime("%z")
+    return f"UTC{offset[:3]}:{offset[3:]}"
+
+def format_local_time(value:object) -> str:
+    """Format a timestamp in local time as 2026-10-25 00:41:20 UTC+08:00, or return it unchanged when unparseable."""
+    timestamp = pd.to_datetime(value, utc=True, errors="coerce") #timestamps without a timezone are treated as UTC
+    if pd.isna(timestamp):
+        return str(value)
+    local = timestamp.to_pydatetime().astimezone()
+    return f"{local:%Y-%m-%d %H:%M:%S} {utc_offset(local)}"
 
 def _newest_key(path:Path) -> tuple[int, int]:
     """Return file modification time and collision suffix for sorting."""
@@ -46,7 +61,7 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
         f"- Analysis type: {analysis_type}",
         f"- Tickers: {', '.join(tickers)}",
         f"- Time range: {result['start_date']:%Y-%m-%d} to {result['end_date']:%Y-%m-%d} ({result['range_label']})",
-        f"- Created: {created_at.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}",
+        f"- Created: {format_local_time(created_at)}",
         "",
         "## In plain words",
         "",
@@ -54,8 +69,8 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
         "",
         "## Metrics",
         "",
-        "| Ticker | Latest price | Return over period | Max drawdown | Sharpe ratio |",
-        "|---|---:|---:|---:|---:|"
+        "| Ticker | Latest price | Return over period | Max drawdown | Current drawdown | Sharpe ratio |",
+        "|---|---:|---:|---:|---:|---:|"
     ]
     
     # Metrics table
@@ -63,14 +78,14 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
         metrics = stock["metrics"]
         lines.append(
             f"| {stock['ticker']} | ${metrics['Latest price']:,.2f} ({stock['price_at_end_date']:%Y-%m-%d}) | "
-            f"{metrics['Return over period']:+.1%} | {metrics['Max drawdown']:.1%} | {metrics['Sharpe ratio']:.2f} |"
+            f"{metrics['Return over period']:+.1%} | {metrics['Max drawdown']:.1%} | {metrics['Current drawdown']:.1%} | {metrics['Sharpe ratio']:.2f} |"
         )
     
     # News
     lines.extend(["", "## Latest news", ""])
     if result["news"]:
         lines.extend(
-            f"- **{article['ticker']}** · [{article['headline']}]({article['url']}) ({article['created_at']})"
+            f"- **{article['ticker']}** · [{article['headline']}]({article['url']}) ({format_local_time(article['created_at'])})"
             for article in result["news"]
         )
     else:

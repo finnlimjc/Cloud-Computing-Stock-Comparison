@@ -1,6 +1,9 @@
-# Company palette: A is dark blue, B is gold
+# Company palette: A is dark blue, B is gold; C-E extend it for multi-stock comparisons
 COLOR_A = "#12264F"
 COLOR_B = "#C7A15E"
+COLOR_C = "#2E8B7A"
+COLOR_D = "#C0504D"
+COLOR_E = "#7B6FB0"
 FILL_A = "rgba(18,38,79,0.14)"
 FILL_B = "rgba(199,161,94,0.18)"
 
