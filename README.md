@@ -4,7 +4,7 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
 The dashboard supports single-stock and comparison modes, with four summary metrics, an "In plain words" summary, recent news, and price/volatility charts. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
 
-The available time ranges are **1 year**, **5 years**, **10 years**, and **20 years** (default). The dashboard uses historical closing prices and does not auto-refresh live prices.
+The available time ranges are **1 year**, **5 years**, **10 years**, **20 years** (default), and **Custom** (any start and end date within the last 20 years, at least 60 days apart). Charts and metrics use daily closing prices; the **Latest price** card refreshes every 60 seconds while the US market is open.
 
 ## Setup
 
@@ -19,22 +19,24 @@ The available time ranges are **1 year**, **5 years**, **10 years**, and **20 ye
 
 2. **Set up `secrets.env`** (optional, for news).
 
-   The news analysis calls the Alpaca News API, which needs API credentials. Get a free key pair from [Alpaca](https://alpaca.markets/), then create a file named `secrets.env` in the project root (next to `app.py`) containing:
+   The news analysis calls the Alpaca News API, which needs API credentials. Get a free key pair from [Alpaca](https://alpaca.markets/), then create a file named `secrets.env` in the project root (next to `src/`) containing:
 
    ```env
    ALPACA_API_KEY=your-alpaca-api-key
    ALPACA_SECRET_KEY=your-alpaca-secret-key
    ```
 
-   - The file is loaded automatically by `src/input_data.py` via `python-dotenv`.
+   - The file is loaded automatically by `src/data/news.py` via `python-dotenv`.
    - `*.env` is listed in `.gitignore`, so it will not be committed. Never commit or share your keys.
-   - Without it, stock prices and charts still work; the dashboard will report that news could not be loaded.
+   - Without it, news falls back to Yahoo Finance; stock prices and charts work either way.
 
-3. Run the app.
+3. Run the app from the project root.
 
    ```bash
-   streamlit run app.py
+   python -m streamlit run src/app.py
    ```
+
+   Use `python -m` from the project root: modules import each other as `src.*`, which needs the project root on the import path.
 
 ## Save and View Analyses
 
@@ -44,11 +46,29 @@ After running a single-stock or comparison analysis, click **Save Analysis** in 
 
 ```text
 .
-├── app.py                  # Streamlit UI (run this)
 ├── src/
-│   ├── input_data.py       # Data loading: Yahoo Finance and Alpaca; loads secrets.env
-│   ├── transformation.py   # Price metrics, summaries, and news formatting
-│   └── plots.py            # Plotly price, volatility, and drawdown charts
+│   ├── app.py                  # Streamlit entry point (run this)
+│   ├── dashboard/              # Streamlit UI
+│   │   ├── config.py           # Constants, cache TTLs, and page CSS
+│   │   ├── loaders.py          # Cached data loaders
+│   │   ├── dates.py            # Market hours and date-range resolution
+│   │   ├── analysis.py         # Builds the stock analysis result and summary
+│   │   ├── sidebar.py          # Analysis form and saved analyses
+│   │   ├── performance.py      # Stock Performance tab
+│   │   └── company_metrics.py  # Company Metrics tab
+│   ├── plots/                  # Plotly charts
+│   │   ├── theme.py            # Shared palette, fonts, and title helpers
+│   │   ├── price_plots.py      # Price, volatility, and recession dashboard
+│   │   └── company_plots.py    # Metrics table, bar, radar, and sentiment charts
+│   ├── data/                   # Loading and saving
+│   │   ├── price_ratings.py    # Yahoo Finance prices, statements, ratings, and FX rates
+│   │   ├── news.py             # Alpaca and Yahoo Finance news; loads secrets.env
+│   │   ├── recessions.py       # FRED recession periods with a known-date fallback
+│   │   └── storage.py          # Saved Markdown analyses
+│   └── analysis/               # Calculations on loaded data
+│       ├── transformation.py   # Price metrics, summaries, and relative time
+│       ├── fundamentals.py     # Financial statement comparisons and business-model scores
+│       └── analyst.py          # Analyst rating periods and buy/hold/sell sentiment
 ├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
 ├── documentation/          # AWS architecture write-ups
 ├── assets/                 # Architecture diagrams
@@ -57,7 +77,7 @@ After running a single-stock or comparison analysis, click **Save Analysis** in 
 └── requirements.txt        # Python dependencies
 ```
 
-- `app.py` caches price and news lookups for 30 minutes and shows ticker/provider problems in the dashboard.
+- `src/dashboard/loaders.py` caches price, news, and company lookups for 30 minutes (recession data for a day); ticker and provider problems are shown in the dashboard.
 - The notebooks in `notebooks/` are the starting point the functions in `src/` were taken from. Run them with `jupyter notebook` if you want to explore the raw code.
 
 ## AWS architecture

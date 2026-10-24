@@ -257,7 +257,7 @@ Resources:
 
           [Service]
           WorkingDirectory=/opt/app
-          ExecStart=/opt/app/.venv/bin/python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+          ExecStart=/opt/app/.venv/bin/python -m streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
           Restart=always
           Environment=HOME=/root
 
@@ -323,7 +323,7 @@ Resources:
 
           [Service]
           WorkingDirectory=/opt/app
-          ExecStart=/opt/app/.venv/bin/python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+          ExecStart=/opt/app/.venv/bin/python -m streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
           Restart=always
           Environment=HOME=/root
 
