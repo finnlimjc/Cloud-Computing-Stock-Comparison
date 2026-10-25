@@ -2,9 +2,10 @@ from datetime import date, datetime
 
 import streamlit as st
 
-from src.dashboard.analysis import collect_company_metrics, load_analysis, parse_tickers, plain_words
-from src.dashboard.config import DIALOG_CSS, HISTORY_YEARS, MAX_STOCKS, MIN_RANGE_DAYS, RANGE_OPTIONS
+from src.dashboard.analysis import collect_company_metrics, collect_financial_statements, load_analysis, parse_tickers, plain_words
+from src.dashboard.config import DIALOG_CSS, HISTORY_YEARS, MAX_STOCKS, MIN_RANGE_DAYS, PAGE_KEY, RANGE_OPTIONS, STATEMENTS_PAGE
 from src.dashboard.dates import resolve_date_range, years_before
+from src.dashboard.financial_statements import selected_statement_ticker
 from src.data import storage
 
 # Saved analyses
@@ -70,11 +71,19 @@ def render_saved_analyses() -> str | None:
     if result and st.button("Save Analysis", use_container_width=True):
         try:
             now = datetime.now().astimezone()
-            with st.spinner("Collecting company metrics..."):
-                company_metrics = collect_company_metrics(result)
-            markdown = storage.make_analysis_markdown(result, plain_words(result), now, company_metrics)
-            tickers = [stock["ticker"] for stock in result["stocks"].values()]
-            analysis_type = "overview" if result["comparison"] else "single"
+            if st.session_state.get(PAGE_KEY) == STATEMENTS_PAGE:
+                ticker = selected_statement_ticker(result)
+                with st.spinner("Collecting financial statements..."):
+                    financial_statements = collect_financial_statements(ticker)
+                markdown = storage.make_statements_markdown(financial_statements, ticker, now)
+                tickers = [ticker]
+                analysis_type = "statements"
+            else:
+                with st.spinner("Collecting company metrics..."):
+                    company_metrics = collect_company_metrics(result)
+                markdown = storage.make_analysis_markdown(result, plain_words(result), now, company_metrics)
+                tickers = [stock["ticker"] for stock in result["stocks"].values()]
+                analysis_type = "overview" if result["comparison"] else "single"
             saved_path = STORE.save(markdown, tickers, analysis_type, now)
             st.success(f"Analysis saved: {saved_path.name}")
         except (OSError, ValueError) as error:

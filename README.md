@@ -6,6 +6,8 @@ The dashboard supports single-stock and comparison modes, with five metric cards
 
 The **Company Metrics** tab uses the same tickers. It shows valuation (market cap, trailing and forward P/E, EV/EBITDA, dividend yield) and a financials table: pick a metric to see every fiscal year the companies share, in USD billions at the latest exchange rate, with a trend sparkline and CAGR. Below that are a business-model radar (pick the fiscal year and which companies to draw; an expander explains how each ratio is scored 0-100 and lets you edit the low and high reference values), analyst sentiment (latest buy/hold/sell split or the buy-share trend over recent monthly snapshots), and analyst price-target ranges relative to the current price.
 
+The **Financial Statements** tab shows the annual income statement, balance sheet, and cash flow statement of one company; when several tickers were run, pick the company with the pills at the top. Figures are Yahoo Finance's reported values in the company's reporting currency, in millions (per-share figures to two decimals, share counts in millions), with negatives in brackets. Each statement follows a standard layout (for example revenue, operating expenses, and net income), with bold subtotals and double-underlined totals, and all three tables share the same fiscal-year columns so they line up. Companies report different items, so a row is shown only when the company has it, and every remaining Yahoo row is listed under **Other line items** below each statement. Those extra rows are mostly breakdowns or restatements of figures already in the totals (for example, Accounts Receivable and Other Receivables make up Receivables), so they should not be added to them.
+
 The available time ranges are **1 year**, **5 years**, **10 years**, **20 years** (default), and **Custom** (any start and end date within the last 20 years, at least 60 days apart). Charts and metrics use daily closing prices; the **Latest price** card refreshes every 60 seconds while the US market is open.
 
 ## Setup
@@ -41,7 +43,12 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
 
 ## Save and View Analyses
 
-After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. The report covers both tabs: price metrics and news, plus valuation, financials, business-model ratios, analyst sentiment with the number of analysts in each bucket, and price targets. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
+After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. What is saved depends on the open tab:
+
+- **Stock Performance** or **Company Metrics**: price metrics and news, plus valuation, financials, business-model ratios, analyst sentiment with the number of analysts in each bucket, and price targets. Saved as `TICKERS_overview_<time>.md` (or `_single_` for one stock).
+- **Financial Statements**: only the company selected in the pills. The report starts with a short explanation of how the figures tally, then each statement's main table followed by its other line items. Saved as `TICKER_statements_<time>.md`.
+
+Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
 
 ### How timestamps are shown
 
@@ -62,7 +69,8 @@ After running a single-stock or comparison analysis, click **Save Analysis** in 
 │   │   ├── analysis.py         # Builds the stock analysis result and summary
 │   │   ├── sidebar.py          # Analysis form and saved analyses
 │   │   ├── performance.py      # Stock Performance tab
-│   │   └── company_metrics.py  # Company Metrics tab
+│   │   ├── company_metrics.py  # Company Metrics tab
+│   │   └── financial_statements.py  # Financial Statements tab
 │   ├── plots/                  # Plotly charts
 │   │   ├── theme.py            # Shared palette, fonts, and title helpers
 │   │   ├── price_plots.py      # Price, volatility, and recession dashboard
@@ -75,6 +83,7 @@ After running a single-stock or comparison analysis, click **Save Analysis** in 
 │   └── analysis/               # Calculations on loaded data
 │       ├── transformation.py   # Price metrics, summaries, and relative time
 │       ├── fundamentals.py     # Financial statement comparisons and business-model scores
+│       ├── statements.py       # Statement layouts and line-item units for the Financial Statements tab
 │       └── analyst.py          # Analyst rating periods and buy/hold/sell sentiment
 ├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
 ├── documentation/          # AWS architecture write-ups

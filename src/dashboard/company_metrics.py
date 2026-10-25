@@ -20,6 +20,9 @@ MISSING_VALUE = "—"
 RANGE_ROW_WIDTHS = [3, 2, 2]
 RANGE_INPUT_KEY = "radar_range_{bound}_{label}"
 
+def _display_text(value:float, number_format:str) -> str:
+    return MISSING_VALUE if pd.isna(value) else number_format.format(value)
+
 def _reset_score_ranges() -> None:
     for label, (low, high) in fundamentals.default_score_ranges().items():
         st.session_state[RANGE_INPUT_KEY.format(bound="low", label=label)] = low
@@ -125,21 +128,22 @@ def render_financials(snapshots:list[dict], key_suffix:str) -> None:
             st.info("These companies have no fiscal years in common.")
             return
         
-        table = history.copy()
+        # Pre-formatted text, because st.dataframe draws missing numbers as "None" and ignores the Styler's na_rep
+        table = history[year_columns].map(_display_text, number_format=FINANCIALS_FORMAT)
+        table[fundamentals.CAGR_COLUMN] = history[fundamentals.CAGR_COLUMN].map(lambda value: _display_text(value, CAGR_FORMAT))
         table["Trend"] = [[value for value in row if not pd.isna(value)] for row in history[year_columns].to_numpy()] #sparklines break on missing years
-        styled = table.style.format(FINANCIALS_FORMAT, subset=year_columns, na_rep=MISSING_VALUE).format(
-            CAGR_FORMAT, subset=[fundamentals.CAGR_COLUMN], na_rep=MISSING_VALUE
-        )
         column_config = {
             "_index": st.column_config.TextColumn("Ticker"),
+            **{column: st.column_config.TextColumn(column, alignment="right") for column in year_columns},
             "Trend": st.column_config.LineChartColumn("Trend", help=f"{metric} over the years with data, {year_columns[0]} to {year_columns[-1]}."),
-            fundamentals.CAGR_COLUMN: st.column_config.NumberColumn(
+            fundamentals.CAGR_COLUMN: st.column_config.TextColumn(
                 "CAGR",
+                alignment="right",
                 help="Compound annual growth rate from the first to the last year with data. Blank when either value is zero or negative."
             )
         }
         st.dataframe(
-            styled,
+            table,
             column_config=column_config,
             column_order=[*year_columns, "Trend", fundamentals.CAGR_COLUMN],
             width="stretch"

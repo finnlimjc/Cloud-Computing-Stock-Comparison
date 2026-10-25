@@ -142,6 +142,7 @@ class Company:
             "ratings": self.analyst_ratings(),
             "price_targets": self.price_targets(),
             "valuation": self.valuation(),
+            "financial_currency": self.info.get("financialCurrency") or "",
             "usd_rate": self.usd_conversion_rate()
         }
         return snapshot

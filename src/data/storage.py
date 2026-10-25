@@ -10,7 +10,8 @@ ANALYSES_DIR = Path(__file__).resolve().parents[2] / "analyses-data"
 # Filename building and parsing
 FILENAME_UNSAFE_PATTERN = re.compile(r"[^A-Za-z0-9-]+")
 COLLISION_SUFFIX_PATTERN = re.compile(r"_(\d+)$")
-FILENAME_PATTERN = re.compile(r"(.+)_(?:overview|single)_(\d{8}-\d{6})(?:_\d+)?")
+FILENAME_PATTERN = re.compile(r"(.+)_(?:overview|single|statements)_(\d{8}-\d{6})(?:_\d+)?")
+ANALYSIS_TYPES = ["overview", "single", "statements"]
 
 # Report metadata parsing
 METADATA_PATTERN = re.compile(r"^- ([^:]+):\s*(.*)$")
@@ -112,6 +113,44 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime, compa
     markdown = "\n".join(lines) + "\n"
     return markdown
 
+def make_statements_markdown(financial_statements:dict, ticker:str, created_at:datetime) -> str:
+    """Build a Markdown report holding one company's financial statements.
+    
+    Inputs:
+    - financial_statements: output of dashboard.analysis.collect_financial_statements
+    - ticker: company selected on the Financial Statements tab
+    - created_at: report creation time
+    
+    Outputs:
+    - Complete Markdown report
+    """
+    lines = [
+        f"# {financial_statements['title']}: financial statements",
+        "",
+        "- Analysis type: statements",
+        f"- Tickers: {ticker}",
+        f"- Created: {format_local_time(created_at)}"
+    ]
+    if financial_statements["note"]:
+        lines.extend(["", financial_statements["note"]])
+    
+    # How the figures tally
+    if financial_statements["tally_notes"]:
+        lines.extend(["", "## How the figures tally", ""])
+        for note, details in financial_statements["tally_notes"]:
+            lines.append(f"- {note}")
+            lines.extend(f"    - {detail}" for detail in details)
+    
+    # Statements and their remaining line items
+    for section in financial_statements["sections"]:
+        lines.extend(["", f"## {section['title']}", ""])
+        if section["note"]:
+            lines.extend([section["note"], ""])
+        lines.extend(_markdown_table(section["headers"], section["rows"]))
+    
+    markdown = "\n".join(lines) + "\n"
+    return markdown
+
 class AnalysisStore:
     """
     Markdown analyses saved in one directory, newest first.
@@ -129,7 +168,7 @@ class AnalysisStore:
         
         Inputs:
         - tickers: symbols included in the analysis
-        - analysis_type: overview or single-stock analysis
+        - analysis_type: overview, single-stock analysis or financial statements
         - created_at: optional filename timestamp
         
         Outputs:
@@ -137,7 +176,7 @@ class AnalysisStore:
         """
         stamp = created_at or datetime.now()
         names = "-vs-".join(_safe_component(ticker) for ticker in tickers) if tickers else "stock"
-        kind = "overview" if analysis_type == "overview" else "single"
+        kind = analysis_type if analysis_type in ANALYSIS_TYPES else "single"
         filename = f"{names}_{kind}_{stamp:%Y%m%d-%H%M%S}.md"
         return filename
     
@@ -165,14 +204,11 @@ class AnalysisStore:
         analysis_type = metadata.get("Analysis type", "Unavailable")
         if analysis_type != "Unavailable":
             analysis_type = analysis_type.title()
-        details = " · ".join(
-            [
-                f"Tickers: {metadata.get('Tickers', 'Unavailable')}",
-                f"Analysis type: {analysis_type}",
-                f"Time range: {metadata.get('Time range', 'Unavailable')}",
-                f"Created: {metadata.get('Created', 'Unavailable')}"
-            ]
-        )
+        parts = [f"Tickers: {metadata.get('Tickers', 'Unavailable')}", f"Analysis type: {analysis_type}"]
+        if analysis_type != "Statements": #statements cover fiscal years, not the price range
+            parts.append(f"Time range: {metadata.get('Time range', 'Unavailable')}")
+        parts.append(f"Created: {metadata.get('Created', 'Unavailable')}")
+        details = " · ".join(parts)
         return details
     
     def save(self, markdown:str, tickers:list[str], analysis_type:str, created_at:datetime | None=None) -> Path:
@@ -181,7 +217,7 @@ class AnalysisStore:
         Inputs:
         - markdown: report content
         - tickers: symbols included in the analysis
-        - analysis_type: overview or single-stock analysis
+        - analysis_type: overview, single-stock analysis or financial statements
         - created_at: optional filename timestamp
         
         Outputs:

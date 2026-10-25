@@ -6,13 +6,18 @@ import pandas as pd
 import requests
 from yfinance.exceptions import YFException
 
-from src.analysis import analyst, fundamentals, transformation
-from src.dashboard.config import COMPARISON_METRICS, MAX_STOCKS, VALUATION_HELP
+from src.analysis import analyst, fundamentals, statements, transformation
+from src.dashboard.config import COMPARISON_METRICS, MAX_STOCKS, STATEMENT_OTHER_NOTE, STATEMENT_TALLY_NOTES, STATEMENT_UNITS_NOTE, VALUATION_HELP
 from src.dashboard.loaders import load_company_snapshot, load_news, load_prices
 from src.data import price_ratings
 
 # Company metrics
 COMPACT_UNITS = ((1e12, "T"), (1e9, "B"), (1e6, "M"))
+
+# Financial statements
+UNITS_PER_MILLION = 1_000_000
+MISSING_VALUE = "—"
+MARKDOWN_INDENT = "&nbsp;&nbsp;&nbsp;&nbsp;"
 
 def parse_tickers(text:str) -> tuple[list[str], list[str]]:
     """Split comma- or space-separated symbols into unique upper-case tickers, capped at MAX_STOCKS.
@@ -195,6 +200,71 @@ def valuation_text(name:str, value:float | None, currency:str) -> str:
     if name == "Dividend yield":
         return f"{value:.2f}%"
     return f"{value:.1f}x"
+
+def format_statement_value(value:float, unit:str) -> str:
+    """Format a statement figure in accounting style: millions, two-decimal per-share figures or percentages, with negatives in brackets."""
+    if pd.isna(value):
+        return MISSING_VALUE
+    if unit == "per_share":
+        text = f"{abs(value):,.2f}"
+    elif unit == "ratio":
+        text = f"{abs(value) * 100:.1f}%"
+    else:
+        text = f"{abs(value) / UNITS_PER_MILLION:,.0f}"
+    if value < 0:
+        return f"({text})"
+    return text
+
+def statement_units_note(snapshot:dict) -> str:
+    """Describe the units of a company's statements, naming its reporting currency when known."""
+    currency = snapshot.get("financial_currency") or "Reporting currency" #older cached snapshots lack the field
+    return STATEMENT_UNITS_NOTE.format(currency=currency)
+
+def _markdown_statement_row(row:dict) -> list[str]:
+    """Markdown cells for one statement row: indented items, bold subtotal labels, and bold totals."""
+    cells = [format_statement_value(value, row["unit"]) for value in row["values"]]
+    if row["style"] == "item":
+        return [MARKDOWN_INDENT + row["label"]] + cells
+    if row["style"] == "subtotal":
+        return [f"**{row['label']}**"] + cells
+    return [f"**{row['label']}**"] + [f"**{cell}**" for cell in cells]
+
+def collect_financial_statements(ticker:str) -> dict:
+    """
+    Build the saved-report tables for one company's financial statements.
+    
+    Inputs:
+    - ticker: company selected on the Financial Statements tab
+    
+    Outputs:
+    - Company title, a units note, notes on how the figures tally, and per statement a main section and a section of Yahoo's remaining line items, each with headers and rows of formatted cells; sections is empty and the note says why when nothing can be shown
+    """
+    try:
+        snapshot = load_company_snapshot(ticker)
+    except (ValueError, KeyError, YFException, requests.RequestException, OSError) as error:
+        return {"title": ticker, "note": f"Financial statements could not be loaded ({error}).", "tally_notes": [], "sections": []}
+    title = f"{snapshot['name']} ({ticker})"
+    period_ends = statements.statement_fiscal_years(snapshot)
+    if not period_ends:
+        return {"title": title, "note": "Yahoo Finance has no annual statements for this company.", "tally_notes": [], "sections": []}
+    
+    headers = ["Line item"] + [f"FY{period_end.year}" for period_end in period_ends]
+    sections = []
+    for name in statements.STATEMENT_NAMES:
+        statement = statements.build_statement(snapshot, name, period_ends)
+        rows = []
+        for section in statement["sections"]:
+            rows.append([f"**{section['title'].upper()}**"] + [""] * len(period_ends))
+            rows.extend(_markdown_statement_row(row) for row in section["rows"])
+        if rows:
+            sections.append({"title": name, "note": "", "headers": headers, "rows": rows})
+        if statement["other"]:
+            other_rows = [
+                [row["label"]] + [format_statement_value(value, row["unit"]) for value in row["values"]]
+                for row in statement["other"]
+            ]
+            sections.append({"title": f"{name}: other line items", "note": STATEMENT_OTHER_NOTE, "headers": headers, "rows": other_rows})
+    return {"title": title, "note": statement_units_note(snapshot), "tally_notes": STATEMENT_TALLY_NOTES, "sections": sections}
 
 def _count_with_percent(count:float, total:float) -> str:
     percent = count / total * 100 if total else 0.0
