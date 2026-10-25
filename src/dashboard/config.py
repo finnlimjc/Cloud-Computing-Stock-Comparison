@@ -31,7 +31,7 @@ TABLE_METRICS = ["Return over period", "Max drawdown", "Current drawdown", "Shar
 CARD_METRICS = TABLE_METRICS
 NEWS_HEIGHT = 376
 NEWS_SUMMARY_STYLE = (
-    "color:#5f6b7f;font-size:0.85rem;display:-webkit-box;-webkit-line-clamp:2;"
+    "color:#3f4a5c;font-size:0.85rem;display:-webkit-box;-webkit-line-clamp:2;"
     "-webkit-box-orient:vertical;overflow:hidden"
 )
 METRIC_HELP = {
@@ -55,6 +55,13 @@ COMPARISON_METRICS = [
     "Cash & Equivalents",
     "Operating Cash Flow"
 ]
+VALUATION_HELP = {
+    "Market cap": "Share price times shares outstanding: what the market values the whole company at, in its listing currency.",
+    "Trailing P/E": "Share price divided by the last 12 months of earnings per share. Higher means investors pay more for each dollar of profit.",
+    "Forward P/E": "Share price divided by analysts' expected earnings per share for the next 12 months.",
+    "EV/EBITDA": "Enterprise value (market cap plus debt minus cash) divided by operating earnings before depreciation. Useful for comparing companies with different debt levels.",
+    "Dividend yield": "Yearly dividends as a percentage of the share price."
+}
 
 # Page styling
 PAGE_CSS = """
@@ -62,12 +69,15 @@ PAGE_CSS = """
 .stApp { background: #F5F6FA; }
 div[data-testid="stMetric"] { padding: 0.15rem 0; }
 [data-testid="stMetricValue"] { font-size: 1.6rem; font-weight: 700; color: #1F2A44; }
-[data-testid="stMetricLabel"] { color: #6b7280; font-size: 0.8rem; }
+[data-testid="stMetricLabel"] { color: #4b5563; font-size: 0.8rem; }
 div[data-testid="stVerticalBlockBorderWrapper"] { border-color: #8A704C; background: #FFFFFF; }
-.st-key-news_card, .st-key-chart_card { background: #FFFFFF; border-radius: 0.75rem; }
+.st-key-news_card, .st-key-chart_card, .st-key-financials_card, .st-key-radar_card, .st-key-analyst_card, .st-key-targets_card { background: #FFFFFF; border-radius: 0.75rem; }
+.st-key-analyst_toggle_box { align-items: flex-end; }
+.st-key-analyst_toggle_box [data-testid="stButtonGroup"] { justify-content: flex-end; }
 .st-key-news_filter_box { align-items: flex-end; }
 .st-key-news_filter_box [data-testid="stButtonGroup"] { justify-content: flex-end; }
 [data-testid="stSidebar"] { background: #FFFFFF; }
+[data-testid="stCaptionContainer"] { color: #4b5563 !important; opacity: 1 !important; } /* Streamlit fades captions with opacity, not color */
 section[data-testid="stSidebar"] { width: 320px !important; }
 @media (max-width: 640px) {
     section[data-testid="stSidebar"] { width: min(320px, 85vw) !important; }

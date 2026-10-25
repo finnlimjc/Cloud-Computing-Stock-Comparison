@@ -25,20 +25,11 @@ METRIC_SOURCES = {
     "Free Cash Flow": ("Cash Flow", ["Free Cash Flow"])
 }
 
-# Core metrics table
-CORE_METRICS = [
-    ("Income Statement", "Revenue"),
-    ("Income Statement", "Gross Profit"),
-    ("Income Statement", "Net Income"),
-    ("Balance Sheet", "Total Assets"),
-    ("Balance Sheet", "Total Liabilities"),
-    ("Balance Sheet", "Cash & Equivalents"),
-    ("Cash Flow Statement", "Operating Cash Flow")
-]
-DEFAULT_YEARS = (2024, 2025)
+# Metric history table
+USD_PER_BILLION = 1_000_000_000
+CAGR_COLUMN = "CAGR"
 
 # Business model radar
-DEFAULT_FISCAL_YEAR = 2025
 MAX_SCORE = 100.0
 
 def _ratio(numerator:float | None, denominator:float | None, scale:float=100.0) -> float | None:
@@ -47,12 +38,27 @@ def _ratio(numerator:float | None, denominator:float | None, scale:float=100.0) 
     ratio = float(numerator / denominator * scale)
     return ratio
 
-def _validate_years(years:tuple[int, int]) -> None:
-    if years[0] >= years[1]:
-        raise ValueError("Select two fiscal years in chronological order.")
+def _cagr(values:pd.Series) -> float:
+    """Compound annual growth in percent between the first and last available years, or NaN when either end is not positive."""
+    available = values.dropna()
+    if len(available) < 2:
+        return np.nan
+    first = available.iloc[0]
+    last = available.iloc[-1]
+    if first <= 0 or last <= 0:
+        return np.nan
+    n_years = len(values.loc[available.index[0]:available.index[-1]]) - 1
+    growth = ((last / first) ** (1 / n_years) - 1) * 100
+    return growth
 
 class CompanyFundamentals:
-    '''Annual statement figures and ratios for one company snapshot.'''
+    """
+    Annual statement figures and ratios for one company snapshot.
+    
+    Inputs:
+    - company: company snapshot from Company.snapshot, whose financials maps statement names to DataFrames with one column per fiscal year-end
+    """
+    
     def __init__(self, company:dict) -> None:
         self.company = company
         self.ticker = company["ticker"]
@@ -145,131 +151,135 @@ class CompanyFundamentals:
         return growth
 
 class RadarDimension(NamedTuple):
-    '''One radar axis: its reference range, unit, formula text, and calculation.'''
-    
+    """One radar axis: its reference range, unit, formula text, plain-language meaning, and calculation."""
     label:str
     ref_min:float
     ref_max:float
     unit:str
     definition:str
+    meaning:str
     calculate:Callable[[CompanyFundamentals, int], float | None]
 
 RADAR_DIMENSIONS = [
-    RadarDimension("Gross Margin", 25.0, 85.0, "%", "Gross Profit / Revenue", CompanyFundamentals.gross_margin),
-    RadarDimension("ROE", 5.0, 65.0, "%", "Net Income / Average Shareholders' Equity", CompanyFundamentals.return_on_equity),
-    RadarDimension("Asset Turnover", 0.2, 2.5, "x", "Revenue / Average Total Assets", CompanyFundamentals.asset_turnover),
-    RadarDimension("Safety Ratio", 10.0, 70.0, "%", "Shareholders' Equity / Total Assets", CompanyFundamentals.safety_ratio),
-    RadarDimension("FCF Margin", 5.0, 35.0, "%", "Free Cash Flow / Revenue", CompanyFundamentals.fcf_margin),
     RadarDimension(
-        "Revenue Growth", -5.0, 25.0, "%",
-        "(FY{year} Revenue - FY{prior} Revenue) / FY{prior} Revenue", CompanyFundamentals.revenue_growth
+        "Gross Margin", 25.0, 85.0, "%", "Gross Profit / Revenue",
+        "How much of each dollar of sales is left after the direct cost of making the product or service. Higher suggests pricing power or cheap production.",
+        CompanyFundamentals.gross_margin
+    ),
+    RadarDimension(
+        "ROE", 5.0, 65.0, "%", "Net Income / Average Shareholders' Equity",
+        "Profit earned for each dollar shareholders have put in. Higher means equity is used more efficiently, though heavy borrowing can also push it up.",
+        CompanyFundamentals.return_on_equity
+    ),
+    RadarDimension(
+        "Asset Turnover", 0.2, 2.5, "x", "Revenue / Average Total Assets",
+        "Sales generated for each dollar of assets. Higher means the business needs fewer factories, stores or cash to produce its revenue.",
+        CompanyFundamentals.asset_turnover
+    ),
+    RadarDimension(
+        "Safety Ratio", 10.0, 70.0, "%", "Shareholders' Equity / Total Assets",
+        "Share of the company's assets paid for by shareholders rather than debt. Higher means less reliance on borrowing and more room to absorb losses.",
+        CompanyFundamentals.safety_ratio
+    ),
+    RadarDimension(
+        "FCF Margin", 5.0, 35.0, "%", "Free Cash Flow / Revenue",
+        "Cash left from each dollar of sales after running the business and paying for new investment. This is what funds dividends, buybacks and debt repayment.",
+        CompanyFundamentals.fcf_margin
+    ),
+    RadarDimension(
+        "Revenue Growth", -5.0, 25.0, "%", "(FY{year} Revenue - FY{prior} Revenue) / FY{prior} Revenue",
+        "How much sales grew compared with the previous fiscal year.",
+        CompanyFundamentals.revenue_growth
     )
 ]
 
-def _score(actual:float | None, dimension:RadarDimension) -> float | None:
+def _score(actual:float | None, ref_min:float, ref_max:float) -> float | None:
     """Min-max scale an actual value to a 0-100 score."""
     if actual is None or pd.isna(actual):
         return None
-    if dimension.ref_max == dimension.ref_min:
+    if ref_max == ref_min:
         return 0.0
-    raw = (actual - dimension.ref_min) / (dimension.ref_max - dimension.ref_min) * MAX_SCORE
+    raw = (actual - ref_min) / (ref_max - ref_min) * MAX_SCORE
     clipped = min(MAX_SCORE, max(0.0, raw))
     score = round(clipped, 1)
     return score
 
-def get_common_fiscal_years(company_a:dict, company_b:dict) -> list[int]:
-    """Return fiscal years represented in both companies' annual statements."""
-    common_years = sorted(CompanyFundamentals(company_a).fiscal_years() & CompanyFundamentals(company_b).fiscal_years())
+def get_common_fiscal_years(companies:list[dict]) -> list[int]:
+    """Return fiscal years represented in every company's annual statements."""
+    year_sets = [CompanyFundamentals(company).fiscal_years() for company in companies]
+    common_years = sorted(set.intersection(*year_sets)) if year_sets else []
     return common_years
 
-def build_core_metrics_table(company_a:dict, company_b:dict, years:tuple[int, int]=DEFAULT_YEARS) -> pd.DataFrame:
-    """Compare each company's values between two fiscal years.
+def build_metric_history(companies:list[dict], metric:str) -> pd.DataFrame:
+    """
+    Collect one metric for every company across their common fiscal years, in USD billions.
     
     Inputs:
-    - company_a: first company snapshot
-    - company_b: second company snapshot
-    - years: earlier and later fiscal years
+    - companies: company snapshots, each with a usd_rate converting its reporting currency to USD
+    - metric: name from METRIC_SOURCES, such as "Revenue"
     
     Outputs:
-    - One row per company and metric with both years, absolute change, and growth percentage
+    - One row per ticker, one FY column per common fiscal year (oldest first), and a CAGR column in percent
+    
+    Example output:
+          FY2022  FY2023  FY2024  FY2025  CAGR
+    AAPL   394.3   383.3   391.0   416.2   1.8
+    MSFT   198.3   211.9   245.1   281.7  12.4
     """
-    _validate_years(years)
-    year_a, year_b = years
-    label_a, label_b = f"FY{year_a}", f"FY{year_b}"
-    companies = [CompanyFundamentals(company_a), CompanyFundamentals(company_b)]
+    fiscal_years = get_common_fiscal_years(companies)
+    n_companies = len(companies)
+    n_years = len(fiscal_years)
+    values = np.full((n_companies, n_years), np.nan, dtype=np.float64)
+    for company_idx, company in enumerate(companies):
+        values_by_year = CompanyFundamentals(company).values_by_year(metric, fiscal_years)
+        usd_billions_per_unit = company["usd_rate"] / USD_PER_BILLION
+        for year_idx, year in enumerate(fiscal_years):
+            if year in values_by_year:
+                values[company_idx, year_idx] = values_by_year[year] * usd_billions_per_unit
     
-    # One row per company and metric
-    rows = []
-    for statement, metric in CORE_METRICS:
-        for company in companies:
-            values = company.values_by_year(metric, [year_a, year_b])
-            value_a = values.get(year_a, np.nan)
-            value_b = values.get(year_b, np.nan)
-            if pd.isna(value_a) and pd.isna(value_b):
-                continue
-            
-            abs_change = value_b - value_a
-            growth_pct = abs_change / value_a * 100 if pd.notna(abs_change) and value_a != 0 else np.nan
-            rows.append(
-                {
-                    "Statement": statement,
-                    "Metric": metric,
-                    "Company": company.ticker,
-                    label_a: value_a,
-                    label_b: value_b,
-                    "Abs_Change": abs_change,
-                    "Growth_Pct": growth_pct
-                }
-            )
-    
-    columns = ["Statement", "Metric", "Company", label_a, label_b, "Abs_Change", "Growth_Pct"]
-    metrics = pd.DataFrame(rows, columns=columns, dtype="object")
-    numeric_columns = [label_a, label_b, "Abs_Change", "Growth_Pct"]
-    metrics[numeric_columns] = metrics[numeric_columns].astype("float64")
-    return metrics
+    tickers = [company["ticker"] for company in companies]
+    history = pd.DataFrame(values, index=tickers, columns=[f"FY{year}" for year in fiscal_years], dtype="float64")
+    history[CAGR_COLUMN] = history.apply(_cagr, axis=1).astype("float64")
+    return history
 
-def build_grouped_bar_dataset(company_a:dict, company_b:dict, metric:str, years:tuple[int, int]=DEFAULT_YEARS) -> dict:
-    """Collect one metric's values for both companies across two fiscal years."""
-    _validate_years(years)
-    values_a = CompanyFundamentals(company_a).values_by_year(metric, list(years))
-    values_b = CompanyFundamentals(company_b).values_by_year(metric, list(years))
-    if not values_a and not values_b:
-        raise ValueError(f"Metric '{metric}' is not available for the selected companies.")
-    dataset = {
-        "metric": metric,
-        "years": [f"FY{year}" for year in years],
-        "company_a": company_a["ticker"],
-        "company_b": company_b["ticker"],
-        "series_a": [values_a.get(year, np.nan) for year in years],
-        "series_b": [values_b.get(year, np.nan) for year in years]
-    }
-    return dataset
+def default_score_ranges() -> dict[str, tuple[float, float]]:
+    """Return each radar dimension's default (low, high) reference values."""
+    return {dimension.label: (dimension.ref_min, dimension.ref_max) for dimension in RADAR_DIMENSIONS}
 
-def build_business_model_radar_data(company_a:dict, company_b:dict, fiscal_year:int=DEFAULT_FISCAL_YEAR) -> dict:
-    """Build normalized business-model scores and actual values for both companies.
+def build_business_model_radar_data(companies:list[dict], fiscal_year:int, ranges:dict[str, tuple[float, float]] | None=None) -> dict:
+    """Build normalized business-model scores and actual values for every company.
     
     Inputs:
-    - company_a: first company snapshot
-    - company_b: second company snapshot
+    - companies: company snapshots
     - fiscal_year: fiscal year to evaluate
+    - ranges: optional (low, high) reference values keyed by dimension label, scoring 0 and 100; missing labels use the defaults
     
     Outputs:
-    - Radar labels, definitions, units, scores, actual values, and metrics missing for either company
+    - Radar labels, definitions, units, the fiscal year, metrics missing for any company, and per-company tickers, names, scores and actual values
     """
-    fundamentals_a = CompanyFundamentals(company_a)
-    fundamentals_b = CompanyFundamentals(company_b)
+    # Actual values and scores
+    score_ranges = default_score_ranges() | (ranges or {})
+    radar_companies = []
+    for company in companies:
+        fundamentals = CompanyFundamentals(company)
+        actuals = [dimension.calculate(fundamentals, fiscal_year) for dimension in RADAR_DIMENSIONS]
+        radar_companies.append(
+            {
+                "ticker": company["ticker"],
+                "name": company.get("name") or company["ticker"],
+                "scores": [_score(actual, *score_ranges[dimension.label]) for actual, dimension in zip(actuals, RADAR_DIMENSIONS)],
+                "actuals": actuals
+            }
+        )
     
-    # Actual values and gaps
-    actuals_a = [dimension.calculate(fundamentals_a, fiscal_year) for dimension in RADAR_DIMENSIONS]
-    actuals_b = [dimension.calculate(fundamentals_b, fiscal_year) for dimension in RADAR_DIMENSIONS]
+    # Gaps
     missing_metrics = [
-        {"company": company.ticker, "metric": dimension.label}
-        for dimension, actual_a, actual_b in zip(RADAR_DIMENSIONS, actuals_a, actuals_b)
-        for company, actual in ((fundamentals_a, actual_a), (fundamentals_b, actual_b))
-        if actual is None
+        {"company": radar_company["ticker"], "metric": dimension.label}
+        for dimension_idx, dimension in enumerate(RADAR_DIMENSIONS)
+        for radar_company in radar_companies
+        if radar_company["actuals"][dimension_idx] is None
     ]
     
-    # Scores
     radar_data = {
         "labels": [dimension.label for dimension in RADAR_DIMENSIONS],
         "definitions": {
@@ -278,14 +288,7 @@ def build_business_model_radar_data(company_a:dict, company_b:dict, fiscal_year:
         },
         "units": {dimension.label: dimension.unit for dimension in RADAR_DIMENSIONS},
         "fiscal_year": fiscal_year,
-        "company_a": company_a["ticker"],
-        "company_b": company_b["ticker"],
-        "name_a": company_a.get("name") or company_a["ticker"],
-        "name_b": company_b.get("name") or company_b["ticker"],
-        "values_a": [_score(actual, dimension) for actual, dimension in zip(actuals_a, RADAR_DIMENSIONS)],
-        "values_b": [_score(actual, dimension) for actual, dimension in zip(actuals_b, RADAR_DIMENSIONS)],
-        "actuals_a": actuals_a,
-        "actuals_b": actuals_b,
+        "companies": radar_companies,
         "missing_metrics": missing_metrics
     }
     return radar_data

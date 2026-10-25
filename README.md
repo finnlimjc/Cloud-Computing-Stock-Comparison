@@ -4,6 +4,8 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
 The dashboard supports single-stock and comparison modes, with five metric cards (latest price, return, max drawdown, current drawdown, Sharpe ratio) for one stock or a comparison table for several, recent news with summaries and a ticker filter, price/volatility/drawdown charts, and a calendar-year returns chart. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
 
+The **Company Metrics** tab uses the same tickers. It shows valuation (market cap, trailing and forward P/E, EV/EBITDA, dividend yield) and a financials table: pick a metric to see every fiscal year the companies share, in USD billions at the latest exchange rate, with a trend sparkline and CAGR. Below that are a business-model radar (pick the fiscal year and which companies to draw; an expander explains how each ratio is scored 0-100 and lets you edit the low and high reference values), analyst sentiment (latest buy/hold/sell split or the buy-share trend over recent monthly snapshots), and analyst price-target ranges relative to the current price.
+
 The available time ranges are **1 year**, **5 years**, **10 years**, **20 years** (default), and **Custom** (any start and end date within the last 20 years, at least 60 days apart). Charts and metrics use daily closing prices; the **Latest price** card refreshes every 60 seconds while the US market is open.
 
 ## Setup
@@ -39,7 +41,7 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
 
 ## Save and View Analyses
 
-After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
+After running a single-stock or comparison analysis, click **Save Analysis** in the sidebar to save a Markdown report. The report covers both tabs: price metrics and news, plus valuation, financials, business-model ratios, analyst sentiment with the number of analysts in each bucket, and price targets. Saved reports appear under **Previous Analyses**; select one and click **Show** to open it in a pop-up. Reports are stored in `analyses-data/` in the project root, which is ignored by Git.
 
 ### How timestamps are shown
 
@@ -64,7 +66,7 @@ After running a single-stock or comparison analysis, click **Save Analysis** in 
 │   ├── plots/                  # Plotly charts
 │   │   ├── theme.py            # Shared palette, fonts, and title helpers
 │   │   ├── price_plots.py      # Price, volatility, and recession dashboard
-│   │   └── company_plots.py    # Metrics table, bar, radar, and sentiment charts
+│   │   └── company_plots.py    # Radar, analyst sentiment, and price-target charts
 │   ├── data/                   # Loading and saving
 │   │   ├── price_ratings.py    # Yahoo Finance prices, statements, ratings, and FX rates
 │   │   ├── news.py             # Alpaca and Yahoo Finance news; loads secrets.env

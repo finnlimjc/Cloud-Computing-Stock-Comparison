@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import streamlit as st
 
-from src.dashboard.analysis import load_analysis, parse_tickers, plain_words
+from src.dashboard.analysis import collect_company_metrics, load_analysis, parse_tickers, plain_words
 from src.dashboard.config import DIALOG_CSS, HISTORY_YEARS, MAX_STOCKS, MIN_RANGE_DAYS, RANGE_OPTIONS
 from src.dashboard.dates import resolve_date_range, years_before
 from src.data import storage
@@ -70,7 +70,9 @@ def render_saved_analyses() -> str | None:
     if result and st.button("Save Analysis", use_container_width=True):
         try:
             now = datetime.now().astimezone()
-            markdown = storage.make_analysis_markdown(result, plain_words(result), now)
+            with st.spinner("Collecting company metrics..."):
+                company_metrics = collect_company_metrics(result)
+            markdown = storage.make_analysis_markdown(result, plain_words(result), now, company_metrics)
             tickers = [stock["ticker"] for stock in result["stocks"].values()]
             analysis_type = "overview" if result["comparison"] else "single"
             saved_path = STORE.save(markdown, tickers, analysis_type, now)

@@ -4,8 +4,18 @@ from functools import cached_property
 import pandas as pd
 import yfinance as yf
 
-# Analyst ratings
+# Analyst ratings and price targets
 ANALYST_RATINGS_LIMIT = 10
+PRICE_TARGET_KEYS = ("current", "low", "median", "mean", "high")
+
+# Valuation, keyed by display name; Yahoo already reports dividendYield in percent (0.31 means 0.31%)
+VALUATION_FIELDS = {
+    "Market cap": "marketCap",
+    "Trailing P/E": "trailingPE",
+    "Forward P/E": "forwardPE",
+    "EV/EBITDA": "enterpriseToEbitda",
+    "Dividend yield": "dividendYield"
+}
 
 # Currency conversion
 CURRENCY_SELECTION_ERROR = "Please select companies with valid currencies or exchange rates."
@@ -28,7 +38,13 @@ def _latest_close(symbol:str) -> float | None:
     return close
 
 class Company:
-    '''Yahoo Finance market data for one listed company.'''
+    """
+    Yahoo Finance market data for one listed company.
+    
+    Inputs:
+    - ticker: user-entered symbol, cleaned with clean_ticker
+    """
+    
     def __init__(self, ticker:str) -> None:
         self.symbol = clean_ticker(ticker)
         self._stock = yf.Ticker(self.symbol)
@@ -51,12 +67,25 @@ class Company:
         return statements
     
     def analyst_ratings(self) -> pd.DataFrame:
-        """Load the most recent analyst recommendation snapshots."""
+        """Load the most recent analyst recommendation snapshots, or an empty frame when none are published."""
         recommendations = self._stock.recommendations
         if recommendations is None or len(recommendations) == 0:
-            raise ValueError(f"No analyst recommendations found for {self.symbol}.")
+            return pd.DataFrame(dtype="float64")
         ratings = recommendations.tail(ANALYST_RATINGS_LIMIT)
         return ratings
+    
+    def price_targets(self) -> dict[str, float]:
+        """Load the current price and the low, median, mean and high analyst price targets, or an empty dict when unavailable."""
+        targets = self._stock.analyst_price_targets or {}
+        if any(targets.get(key) is None for key in PRICE_TARGET_KEYS):
+            return {}
+        return {key: float(targets[key]) for key in PRICE_TARGET_KEYS}
+    
+    def valuation(self) -> dict:
+        """Read market cap, valuation multiples and dividend yield from the company profile, with None for missing values."""
+        valuation = {name: self.info.get(field) for name, field in VALUATION_FIELDS.items()}
+        valuation["Currency"] = self.info.get("currency") or ""
+        return valuation
     
     def latest_price(self, market_open:bool) -> float:
         """Fetch the latest intraday price, or the most recent close when the market is shut."""
@@ -94,7 +123,7 @@ class Company:
         currency = str(currency).upper()
         if currency == "USD":
             return 1.0
-
+        
         # Get Conversion Rate
         rate = _latest_close(f"{currency}USD=X")
         if rate is None:
@@ -105,19 +134,14 @@ class Company:
         return rate
     
     def snapshot(self) -> dict:
-        """Load the name, financial statements, analyst ratings, and USD conversion rate."""
+        """Load the name, financial statements, analyst ratings and price targets, valuation, and USD conversion rate."""
         snapshot = {
             "ticker": self.symbol,
             "name": self.info.get("longName") or self.symbol,
             "financials": self.financials(),
             "ratings": self.analyst_ratings(),
+            "price_targets": self.price_targets(),
+            "valuation": self.valuation(),
             "usd_rate": self.usd_conversion_rate()
         }
         return snapshot
-
-def get_company_pair_data(ticker_a:str, ticker_b:str) -> dict[str, dict]:
-    """Load both company snapshots keyed by cleaned ticker."""
-    company_a = Company(ticker_a)
-    company_b = Company(ticker_b)
-    pair = {company_a.symbol: company_a.snapshot(), company_b.symbol: company_b.snapshot()}
-    return pair

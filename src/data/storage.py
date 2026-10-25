@@ -38,13 +38,21 @@ def _newest_key(path:Path) -> tuple[int, int]:
     suffix = int(collision.group(1)) if collision else 0
     return path.stat().st_mtime_ns, suffix
 
-def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> str:
+def _markdown_table(headers:list[str], rows:list[list[str]]) -> list[str]:
+    """Build Markdown table lines with the first column left-aligned and the rest right-aligned."""
+    alignment = ["---"] + ["---:"] * (len(headers) - 1)
+    lines = [f"| {' | '.join(headers)} |", f"|{'|'.join(alignment)}|"]
+    lines.extend(f"| {' | '.join(row)} |" for row in rows)
+    return lines
+
+def make_analysis_markdown(result:dict, sentence:str, created_at:datetime, company_metrics:dict) -> str:
     """Build a Markdown report for a dashboard analysis.
     
     Inputs:
     - result: dashboard analysis result
     - sentence: plain-language summary
     - created_at: report creation time
+    - company_metrics: output of dashboard.analysis.collect_company_metrics, with formatted table sections and a note on anything unavailable
     
     Outputs:
     - Complete Markdown report
@@ -91,11 +99,26 @@ def make_analysis_markdown(result:dict, sentence:str, created_at:datetime) -> st
     else:
         lines.append("No news articles were available when this analysis was saved.")
     
+    # Company metrics
+    lines.extend(["", "## Company metrics"])
+    for section in company_metrics["sections"]:
+        lines.extend(["", f"### {section['title']}", ""])
+        if section["note"]:
+            lines.extend([section["note"], ""])
+        lines.extend(_markdown_table(section["headers"], section["rows"]))
+    if company_metrics["note"]:
+        lines.extend(["", f"Not included: {company_metrics['note']}"])
+    
     markdown = "\n".join(lines) + "\n"
     return markdown
 
 class AnalysisStore:
-    '''Markdown analyses saved in one directory, newest first.'''
+    """
+    Markdown analyses saved in one directory, newest first.
+    
+    Inputs:
+    - directory: folder holding the saved reports
+    """
     
     def __init__(self, directory:Path=ANALYSES_DIR) -> None:
         self.directory = directory

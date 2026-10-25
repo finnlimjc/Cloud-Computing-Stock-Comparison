@@ -27,7 +27,7 @@ def main() -> None:
         if result:
             render_dashboard(result)
     with metrics_page:
-        show_comparison_dashboard()
+        show_comparison_dashboard(st.session_state.analysis_results)
 
 if __name__ == "__main__":
     main()

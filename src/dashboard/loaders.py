@@ -13,10 +13,10 @@ def load_prices(ticker:str, start_date:date, end_date:date) -> pd.Series:
     return prices
 
 @st.cache_data(ttl=THIRTY_MINUTES, show_spinner=False)
-def load_company_pair_data(ticker_a:str, ticker_b:str) -> dict:
-    """Download and cache the snapshots used by the company metrics comparison."""
-    pair = price_ratings.get_company_pair_data(ticker_a, ticker_b)
-    return pair
+def load_company_snapshot(ticker:str) -> dict:
+    """Download and cache one company's snapshot for the company metrics tab and saved reports."""
+    snapshot = price_ratings.Company(ticker).snapshot()
+    return snapshot
 
 @st.cache_data(ttl=LATEST_PRICE_TTL, show_spinner=False)
 def load_latest_price(ticker:str, market_open:bool) -> tuple[float, datetime]:

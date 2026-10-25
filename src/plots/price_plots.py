@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from src.analysis.transformation import normalize_prices
-from src.plots.theme import COLOR_BG, COLOR_INK, COLOR_MUTED, COLOR_RULE
+from src.plots.theme import COLOR_BG, COLOR_INK, COLOR_MUTED, COLOR_RULE, with_alpha
 
 # Price dashboard
 TRACE_LINE_WIDTH = 2.0
@@ -13,11 +13,6 @@ DATE_HOVER_FORMAT = "%a, %b %d %Y"
 RECESSION_FILL = "rgba(120, 120, 120, 0.12)"
 RECESSION_LABEL_BG = "rgba(255,255,255,0.72)"
 DRAWDOWN_FILL_ALPHA = 0.3
-
-def _with_alpha(hex_color:str, alpha:float) -> str:
-    """Convert a #RRGGBB color to an rgba() string with the given opacity."""
-    red, green, blue = (int(hex_color[position:position + 2], 16) for position in (1, 3, 5))
-    return f"rgba({red},{green},{blue},{alpha})"
 
 def _add_stock_traces(fig:go.Figure, prices:dict[str, pd.Series], volatilities:dict[str, pd.Series], drawdowns:dict[str, pd.Series], colors:dict[str, str], comparison:bool) -> None:
     """Add price, volatility and drawdown traces for each stock, normalizing prices when comparing."""
@@ -78,7 +73,7 @@ def _add_stock_traces(fig:go.Figure, prices:dict[str, pd.Series], volatilities:d
                 showlegend=False,
                 line=line,
                 fill="tozeroy",
-                fillcolor=_with_alpha(colors[ticker], DRAWDOWN_FILL_ALPHA),
+                fillcolor=with_alpha(colors[ticker], DRAWDOWN_FILL_ALPHA),
                 hovertemplate="%{y:.1%}<extra>%{fullData.name}</extra>"
             ),
             row=3,

@@ -6,10 +6,13 @@ import pandas as pd
 import requests
 from yfinance.exceptions import YFException
 
-from src.analysis import transformation
-from src.dashboard.config import MAX_STOCKS
-from src.dashboard.loaders import load_news, load_prices
+from src.analysis import analyst, fundamentals, transformation
+from src.dashboard.config import COMPARISON_METRICS, MAX_STOCKS, VALUATION_HELP
+from src.dashboard.loaders import load_company_snapshot, load_news, load_prices
 from src.data import price_ratings
+
+# Company metrics
+COMPACT_UNITS = ((1e12, "T"), (1e9, "B"), (1e6, "M"))
 
 def parse_tickers(text:str) -> tuple[list[str], list[str]]:
     """Split comma- or space-separated symbols into unique upper-case tickers, capped at MAX_STOCKS.
@@ -165,3 +168,158 @@ def plain_words(result:dict) -> str:
     drawdowns = {stock["ticker"]: stock["metrics"]["Max drawdown"] for stock in ordered}
     summary = transformation.plain_words_comparison(tickers, returns, volatilities, drawdowns, range_label)
     return summary
+
+def load_company_snapshots(result:dict) -> tuple[list[dict], list[str]]:
+    """Load the company snapshot for each analysed stock, skipping tickers that fail with a warning each."""
+    snapshots = []
+    warnings = []
+    for stock in result["stocks"].values():
+        try:
+            snapshots.append(load_company_snapshot(stock["ticker"]))
+        except (ValueError, KeyError, YFException, requests.RequestException, OSError) as error:
+            warnings.append(f"{stock['ticker']}: company data could not be loaded ({error})")
+    return snapshots, warnings
+
+def rated_companies(snapshots:list[dict]) -> list[dict]:
+    """Return the snapshots that have analyst ratings."""
+    return [snapshot for snapshot in snapshots if not analyst.AnalystRatings(snapshot).is_empty]
+
+def valuation_text(name:str, value:float | None, currency:str) -> str:
+    """Format a valuation figure: market cap as 5.07T USD, dividend yield as 0.31%, and multiples as 39.9x."""
+    if value is None or pd.isna(value):
+        return "N/A"
+    if name == "Market cap":
+        threshold, suffix = next(((threshold, suffix) for threshold, suffix in COMPACT_UNITS if abs(value) >= threshold), (1, ""))
+        compact = f"{value / threshold:,.2f}{suffix} {currency}".strip()
+        return compact
+    if name == "Dividend yield":
+        return f"{value:.2f}%"
+    return f"{value:.1f}x"
+
+def _count_with_percent(count:float, total:float) -> str:
+    percent = count / total * 100 if total else 0.0
+    return f"{int(count)} ({percent:.1f}%)"
+
+def _financials_section(snapshots:list[dict]) -> dict | None:
+    """Latest common fiscal year value and CAGR of each comparison metric, one column per ticker."""
+    fiscal_years = fundamentals.get_common_fiscal_years(snapshots)
+    if not fiscal_years:
+        return None
+    tickers = [snapshot["ticker"] for snapshot in snapshots]
+    latest_column = f"FY{fiscal_years[-1]}"
+    rows = []
+    for metric in COMPARISON_METRICS:
+        history = fundamentals.build_metric_history(snapshots, metric)
+        cells = []
+        for ticker in tickers:
+            value = history.loc[ticker, latest_column]
+            cagr = history.loc[ticker, fundamentals.CAGR_COLUMN]
+            cell = "N/A" if pd.isna(value) else f"{value:,.4f}"
+            if pd.notna(cagr):
+                cell += f" ({cagr:+.1f}% CAGR)"
+            cells.append(cell)
+        rows.append([metric] + cells)
+    section = {
+        "title": f"Financials ({latest_column}, USD billions)",
+        "note": f"CAGR is the compound annual growth from each company's first available year up to FY{fiscal_years[-1]}, left out when either end is not positive.",
+        "headers": ["Metric"] + tickers,
+        "rows": rows
+    }
+    return section
+
+def _business_model_section(snapshots:list[dict]) -> dict | None:
+    """Actual business-model ratios for the latest common fiscal year, one column per ticker."""
+    fiscal_years = fundamentals.get_common_fiscal_years(snapshots)
+    if not fiscal_years:
+        return None
+    radar_data = fundamentals.build_business_model_radar_data(snapshots, fiscal_years[-1])
+    rows = []
+    for label_idx, label in enumerate(radar_data["labels"]):
+        unit = radar_data["units"][label]
+        cells = [
+            "N/A" if company["actuals"][label_idx] is None else f"{company['actuals'][label_idx]:.1f}{unit}"
+            for company in radar_data["companies"]
+        ]
+        rows.append([label] + cells)
+    section = {
+        "title": f"Business model (FY{radar_data['fiscal_year']})",
+        "note": "",
+        "headers": ["Metric"] + [company["ticker"] for company in radar_data["companies"]],
+        "rows": rows
+    }
+    return section
+
+def _sentiment_section(snapshots:list[dict]) -> dict | None:
+    """Latest analyst buy, hold and sell counts with their shares, total and consensus."""
+    rated = rated_companies(snapshots)
+    if not rated:
+        return None
+    sentiment_data = analyst.build_analyst_sentiment_data(rated)
+    rows = [
+        [
+            sentiment["ticker"],
+            sentiment["consensus"],
+            _count_with_percent(sentiment["buy"], sentiment["total"]),
+            _count_with_percent(sentiment["hold"], sentiment["total"]),
+            _count_with_percent(sentiment["sell"], sentiment["total"]),
+            str(int(sentiment["total"]))
+        ]
+        for sentiment in sentiment_data["companies"]
+    ]
+    section = {
+        "title": f"Analyst sentiment ({sentiment_data['period_label']})",
+        "note": "",
+        "headers": ["Ticker", "Consensus", "Buy", "Hold", "Sell", "Total analysts"],
+        "rows": rows
+    }
+    return section
+
+def _price_targets_section(snapshots:list[dict]) -> dict | None:
+    """Analyst price targets in each listing currency, with the median's distance from the current price."""
+    targets = analyst.build_price_targets(snapshots)
+    if not targets:
+        return None
+    rows = [
+        [target["ticker"], target["currency"]]
+        + [f"{target[key]:,.2f}" for key in ("current", "low", "median", "mean", "high")]
+        + [f"{target['median_pct']:+.1f}%"]
+        for target in targets
+    ]
+    section = {
+        "title": "Analyst price targets",
+        "note": "",
+        "headers": ["Ticker", "Currency", "Current", "Low", "Median", "Mean", "High", "Median vs current"],
+        "rows": rows
+    }
+    return section
+
+def collect_company_metrics(result:dict) -> dict:
+    """
+    Build the saved-report tables for the Company Metrics tab.
+    
+    Inputs:
+    - result: dashboard analysis result, whose stocks give the tickers to load
+    
+    Outputs:
+    - Sections, each with a title, note, headers and rows of formatted cells, plus a note naming tickers that could not be loaded
+    
+    Example output:
+    {
+        "sections": [{"title": "Valuation", "note": "", "headers": ["Ticker", "Market cap", ...], "rows": [["AAPL", "5.07T USD", ...]]}],
+        "note": "XYZ: company data could not be loaded (...)"
+    }
+    """
+    snapshots, warnings = load_company_snapshots(result)
+    if not snapshots:
+        return {"sections": [], "note": "; ".join(warnings) or "Company data was unavailable."}
+    
+    valuation_rows = [
+        [snapshot["ticker"]] + [valuation_text(name, snapshot["valuation"][name], snapshot["valuation"]["Currency"]) for name in VALUATION_HELP]
+        for snapshot in snapshots
+    ]
+    sections = [{"title": "Valuation", "note": "", "headers": ["Ticker"] + list(VALUATION_HELP), "rows": valuation_rows}]
+    for build_section in (_financials_section, _business_model_section, _sentiment_section, _price_targets_section):
+        section = build_section(snapshots)
+        if section is not None:
+            sections.append(section)
+    return {"sections": sections, "note": "; ".join(warnings)}
