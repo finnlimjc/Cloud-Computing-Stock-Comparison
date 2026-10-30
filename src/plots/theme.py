@@ -7,7 +7,7 @@ COLOR_E = "#7B6FB0"
 
 # Shared chart theme
 COLOR_INK = "#17233d"
-COLOR_MUTED = "#3f4a5cff" # de-emphasize text
+COLOR_MUTED = "#3f4a5c" # de-emphasize text
 COLOR_RULE = "#e2e7ef" #divider, gridlines
 COLOR_BG = "#ffffff"
 FONT_STACK = "Work Sans, Helvetica Neue, Arial, sans-serif"
