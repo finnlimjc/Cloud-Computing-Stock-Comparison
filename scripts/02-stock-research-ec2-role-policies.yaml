@@ -5,7 +5,7 @@ Description: >-
   read/write/delete the PDF notes in the S3 bucket from 02-stock-research-s3-bucket.yaml.
   The sandbox does not allow creating roles, so this stack only adds policies to the
   existing role. Attach the role to the web servers by updating the VPC stack with
-  InstanceProfileName set to EC2InstanceRole.
+  InstanceProfileName set to Work-Role (EC2InstanceRole's instance profile).
 
 # ---------------------------------------------------------------------------
 # PARAMETERS - values you can choose when creating the stack

@@ -11,7 +11,7 @@ The web servers need AWS permissions for two things: reading the Alpaca API keys
 | Setting | Value |
 |---|---|
 | Role | `EC2InstanceRole` (existing, not managed by CloudFormation) |
-| Instance profile | `EC2InstanceRole` |
+| Instance profile | `Work-Role` (named differently from the role) |
 | Inline policies added | `alpaca-ssm-parameters`, `notes-bucket-access` |
 
 The template uses `AWS::IAM::RolePolicy`, which only needs `iam:PutRolePolicy` on the role. The role itself is never created, changed or deleted by the stack: deleting the stack only removes the two inline policies.
@@ -40,17 +40,17 @@ The Alpaca keys are stored as `SecureString` parameters under `/work/` (the only
 
 ## Attaching the role to the web servers
 
-An instance can only be given a role through an instance profile. A role created in the console for the EC2 use case gets an instance profile with the same name. Check it exists with:
+An instance can only be given a role through an instance profile, and EC2 asks for the **instance profile name**, not the role name. The two can differ: `EC2InstanceRole`'s instance profile is `Work-Role` (shown as **Instance profile ARN** on the role's Summary panel in the IAM console). Passing the role name instead fails with `Invalid IAM Instance Profile name`. Check the profile name with:
 
 ```
 aws iam list-instance-profiles-for-role --role-name EC2InstanceRole
 ```
 
-The VPC template's `InstanceProfileName` parameter defaults to `EC2InstanceRole`, and both web servers use that instance profile. Leave it empty to launch them without a role.
+The VPC template's `InstanceProfileName` parameter defaults to `Work-Role`, and both web servers use that instance profile. Leave it empty to launch them without a role.
 
 1. Create the S3 bucket stack (`02-stock-research-s3-bucket.yaml`).
 2. Create the policy stack (`03-stock-research-ec2-role-policies.yaml`). Tick the IAM acknowledgment checkbox (CLI: `--capabilities CAPABILITY_IAM`).
-3. Update the VPC stack (`01-stock-research-dashboard-vpc.yaml`) with **Use existing template**, and set `InstanceProfileName` to `EC2InstanceRole` (or the name returned by the command above).
+3. Update the VPC stack (`01-stock-research-dashboard-vpc.yaml`) with **Use existing template**, and set `InstanceProfileName` to `Work-Role` (or the name returned by the command above).
 
 Adding an instance profile to a running instance does not stop or replace it, so the web servers keep running during the update. New VPC stacks can also set `InstanceProfileName` when first created.
 
