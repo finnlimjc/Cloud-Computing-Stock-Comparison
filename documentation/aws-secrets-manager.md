@@ -25,3 +25,5 @@ aws ssm get-parameters --names /work/alpaca-api-key /work/alpaca-secret-key --wi
 ```
 
 The output should list both parameters under `Parameters`, each with its decrypted `Value`. Any name that could not be found appears under `InvalidParameters`.
+
+The web servers read these parameters through the existing `EC2InstanceRole` (see [aws-ec2-iam-role.md](aws-ec2-iam-role.md)), whose policy allows `ssm:*` on `/work/*`.

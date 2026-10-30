@@ -85,8 +85,8 @@ Two identical EC2 instances, one in each public subnet, sharing the same Web Sec
 | Storage | 8 GiB `gp3` |
 | Network | Auto-assigned public IPv4 |
 | Security group | Web Security Group |
-| Key pair | `vockey` |
-| IAM instance profile | `EC2InstanceRole` (`InstanceProfileName` parameter, optional). See [aws-ec2-iam-role.md](aws-ec2-iam-role.md). |
+| Key pair | None (no SSH access needed) |
+| IAM instance profile | `EC2InstanceRole` (`InstanceProfileName` parameter). See [aws-ec2-iam-role.md](aws-ec2-iam-role.md). |
 | Python | 3.11 (`python3.11` package) |
 | App | Streamlit on `0.0.0.0:8501`|
 

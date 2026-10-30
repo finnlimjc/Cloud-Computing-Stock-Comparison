@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Stock research dashboard - inline policies for the existing EC2InstanceRole.
+  Lets the web servers read the Alpaca keys from SSM Parameter Store (/work/*) and
+  read/write/delete the PDF notes in the S3 bucket from 02-stock-research-s3-bucket.yaml.
+  The sandbox does not allow creating roles, so this stack only adds policies to the
+  existing role. Attach the role to the web servers by updating the VPC stack with
+  InstanceProfileName set to EC2InstanceRole.
+
+# ---------------------------------------------------------------------------
+# PARAMETERS - values you can choose when creating the stack
+# ---------------------------------------------------------------------------
+Parameters:
+  ObjectKeyPrefix:
+    Type: String
+    Default: notes
+    Description: Folder (key prefix) in the bucket the web servers may read, write and delete.
+
+Resources:
+  # -------------------------------------------------------------------------
+  # SSM POLICY - the Alpaca API key and secret key are SecureString parameters
+  # under /work/ (the only path the sandbox allows). The default aws/ssm KMS key
+  # lets any principal in the account decrypt through SSM, so no kms:Decrypt.
+  # RoleName points at a role this stack does not own; deleting the stack only
+  # removes the policy, never the role.
+  # -------------------------------------------------------------------------
+  AlpacaSsmPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: EC2InstanceRole
+      PolicyName: alpaca-ssm-parameters
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ssm:*
+            Resource: arn:aws:ssm:*:*:parameter/work/*
+
+  # -------------------------------------------------------------------------
+  # S3 POLICY - object access limited to one folder of the notes bucket.
+  # Bucket name must match 02-stock-research-s3-bucket.yaml.
+  # Version actions are needed because the bucket is versioned.
+  # -------------------------------------------------------------------------
+  NotesBucketPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: EC2InstanceRole
+      PolicyName: notes-bucket-access
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: NotesObjectAccess
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:DeleteObject
+              - s3:GetObjectVersion
+              - s3:DeleteObjectVersion
+            Resource: !Sub arn:aws:s3:::stock-research-bucket-${AWS::AccountId}-${AWS::Region}/${ObjectKeyPrefix}/*
+          - Sid: ListNotesBucket
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub arn:aws:s3:::stock-research-bucket-${AWS::AccountId}-${AWS::Region}

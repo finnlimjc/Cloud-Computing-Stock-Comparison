@@ -23,25 +23,18 @@ Parameters:
     Type: String
     Default: DevOps
     Description: Value of the Team tag on the web servers (team responsible).
-  KeyPairName:
-    Type: String
-    Default: ""
-    Description: >-
-      Optional. Name of an existing EC2 key pair for SSH (the lab uses "vockey").
-      Leave empty to launch without a key pair - it is not needed to see the web app.
   InstanceProfileName:
     Type: String
-    Default: ""
+    Default: EC2InstanceRole
     Description: >-
-      Optional. Instance profile of the existing role (EC2InstanceRole), whose policies
-      are added by 03-stock-research-ec2-role-policies.yaml. Gives the web servers access
-      to the Alpaca keys in SSM and the notes bucket. Leave empty to launch without a role.
+      Instance profile of the existing role (EC2InstanceRole), whose policies are added
+      by 03-stock-research-ec2-role-policies.yaml. Gives the web servers access to the
+      Alpaca keys in SSM and the notes bucket. Leave empty to launch without a role.
 
 # ---------------------------------------------------------------------------
-# CONDITIONS - only attach a key pair / instance profile if one was provided
+# CONDITIONS - only attach an instance profile if one was provided
 # ---------------------------------------------------------------------------
 Conditions:
-  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
   HasInstanceProfile: !Not [!Equals [!Ref InstanceProfileName, ""]]
 
 Resources:
@@ -235,7 +228,6 @@ Resources:
     Properties:
       ImageId: ami-0fef201115eefe936
       InstanceType: t2.micro
-      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
       IamInstanceProfile: !If [HasInstanceProfile, !Ref InstanceProfileName, !Ref "AWS::NoValue"]
       NetworkInterfaces:
         - DeviceIndex: "0"
@@ -302,7 +294,6 @@ Resources:
     Properties:
       ImageId: ami-0fef201115eefe936
       InstanceType: t2.micro
-      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
       IamInstanceProfile: !If [HasInstanceProfile, !Ref InstanceProfileName, !Ref "AWS::NoValue"]
       NetworkInterfaces:
         - DeviceIndex: "0"
