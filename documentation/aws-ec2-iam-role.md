@@ -1,6 +1,6 @@
 # AWS EC2 IAM Role
 
-> **Source:** [scripts/03-stock-research-ec2-role-policies.yaml](../scripts/03-stock-research-ec2-role-policies.yaml) (CloudFormation).
+> **Source:** [scripts/02-stock-research-ec2-role-policies.yaml](../scripts/02-stock-research-ec2-role-policies.yaml) (CloudFormation).
 
 > **Disclaimer:** The sandbox does not allow creating or renaming IAM roles, only modifying existing ones. The template therefore adds inline policies to the existing `EC2InstanceRole` instead of creating its own role.
 
@@ -30,13 +30,13 @@ The Alpaca keys are stored as `SecureString` parameters under `/work/` (the only
 
 | Sid | Actions | Resource |
 |---|---|---|
-| `NotesObjectAccess` | `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:GetObjectVersion`, `s3:DeleteObjectVersion` | `arn:aws:s3:::stock-research-bucket-<account-id>-<region>/notes/*` |
+| `NotesObjectAccess` | `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:GetObjectVersion`, `s3:DeleteObjectVersion` | `arn:aws:s3:::stock-research-bucket-<account-id>-<region>/users/*` |
 | `ListNotesBucket` | `s3:ListBucket` | `arn:aws:s3:::stock-research-bucket-<account-id>-<region>` |
 
-- Object actions are limited to the `notes/` folder (the `ObjectKeyPrefix` parameter), so the dashboard cannot touch anything else in the bucket.
+- Object actions are limited to the `users/` folder (the `ObjectKeyPrefix` parameter), so the dashboard cannot touch anything else in the bucket. It matches the object key layout `users/{owner_id}/{document_id}/{filename}` in the README.
 - `s3:ListBucket` applies to the bucket itself, not its objects, so it needs the bucket ARN without `/*`. Without it, reading a missing file returns `403 Access Denied` instead of `404 Not Found`.
 - The version actions are needed because the bucket is versioned: they let the app read or permanently remove a specific version.
-- The bucket name is built the same way as in [02-stock-research-s3-bucket.yaml](../scripts/02-stock-research-s3-bucket.yaml), so it must stay in sync if that name changes.
+- The bucket name is built the same way as in [01-stock-research-s3-bucket.yaml](../scripts/01-stock-research-s3-bucket.yaml), so it must stay in sync if that name changes.
 
 ## Attaching the role to the web servers
 
@@ -48,11 +48,11 @@ aws iam list-instance-profiles-for-role --role-name EC2InstanceRole
 
 The VPC template's `InstanceProfileName` parameter defaults to `Work-Role`, and both web servers use that instance profile. Leave it empty to launch them without a role.
 
-1. Create the S3 bucket stack (`02-stock-research-s3-bucket.yaml`).
-2. Create the policy stack (`03-stock-research-ec2-role-policies.yaml`). Tick the IAM acknowledgment checkbox (CLI: `--capabilities CAPABILITY_IAM`).
-3. Update the VPC stack (`01-stock-research-dashboard-vpc.yaml`) with **Use existing template**, and set `InstanceProfileName` to `Work-Role` (or the name returned by the command above).
+1. Create the S3 bucket stack (`01-stock-research-s3-bucket.yaml`).
+2. Create the policy stack (`02-stock-research-ec2-role-policies.yaml`). Tick the IAM acknowledgment checkbox (CLI: `--capabilities CAPABILITY_IAM`).
+3. Create the VPC stack (`03-stock-research-dashboard-vpc.yaml`). `InstanceProfileName` is already `Work-Role` by default.
 
-Adding an instance profile to a running instance does not stop or replace it, so the web servers keep running during the update. New VPC stacks can also set `InstanceProfileName` when first created.
+An existing VPC stack created without the instance profile can be updated with **Use existing template** and `InstanceProfileName` set to `Work-Role`. Adding an instance profile to a running instance does not stop or replace it, so the web servers keep running during the update.
 
 ## Tags
 

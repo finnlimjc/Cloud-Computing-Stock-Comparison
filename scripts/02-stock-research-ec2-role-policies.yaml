@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Stock research dashboard - inline policies for the existing EC2InstanceRole.
   Lets the web servers read the Alpaca keys from SSM Parameter Store (/work/*) and
-  read/write/delete the PDF notes in the S3 bucket from 02-stock-research-s3-bucket.yaml.
+  read/write/delete the PDF notes in the S3 bucket from 01-stock-research-s3-bucket.yaml.
   The sandbox does not allow creating roles, so this stack only adds policies to the
   existing role. Attach the role to the web servers by updating the VPC stack with
   InstanceProfileName set to Work-Role (EC2InstanceRole's instance profile).
@@ -13,7 +13,7 @@ Description: >-
 Parameters:
   ObjectKeyPrefix:
     Type: String
-    Default: notes
+    Default: users
     Description: Folder (key prefix) in the bucket the web servers may read, write and delete.
 
 Resources:
@@ -38,7 +38,7 @@ Resources:
 
   # -------------------------------------------------------------------------
   # S3 POLICY - object access limited to one folder of the notes bucket.
-  # Bucket name must match 02-stock-research-s3-bucket.yaml.
+  # Bucket name must match 01-stock-research-s3-bucket.yaml.
   # Version actions are needed because the bucket is versioned.
   # -------------------------------------------------------------------------
   NotesBucketPolicy:

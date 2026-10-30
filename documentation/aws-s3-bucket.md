@@ -1,6 +1,6 @@
 # AWS S3 Bucket
 
-> **Source:** [scripts/02-stock-research-s3-bucket.yaml](../scripts/02-stock-research-s3-bucket.yaml) (CloudFormation).
+> **Source:** [scripts/01-stock-research-s3-bucket.yaml](../scripts/01-stock-research-s3-bucket.yaml) (CloudFormation).
 
 ## Overview
 

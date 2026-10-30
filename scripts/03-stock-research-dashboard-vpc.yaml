@@ -29,7 +29,7 @@ Parameters:
     Description: >-
       Instance profile of the existing role EC2InstanceRole (the profile is named
       Work-Role, not the role name), whose policies are added
-      by 03-stock-research-ec2-role-policies.yaml. Gives the web servers access to the
+      by 02-stock-research-ec2-role-policies.yaml. Gives the web servers access to the
       Alpaca keys in SSM and the notes bucket. Leave empty to launch without a role.
 
 # ---------------------------------------------------------------------------

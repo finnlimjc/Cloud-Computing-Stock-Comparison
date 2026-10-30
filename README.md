@@ -202,6 +202,6 @@ The AWS version needs no changes to the dashboard pages:
 The dashboard is designed to run in its own VPC on AWS. These documents describe the design:
 
 - [AWS IAM access architecture](documentation/aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
-- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/01-stock-research-dashboard-vpc.yaml](scripts/01-stock-research-dashboard-vpc.yaml).
-- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for the PDF notes. Built from [scripts/02-stock-research-s3-bucket.yaml](scripts/02-stock-research-s3-bucket.yaml).
-- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys from SSM and manage notes in S3. Built from [scripts/03-stock-research-ec2-role-policies.yaml](scripts/03-stock-research-ec2-role-policies.yaml).
+- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for the PDF notes. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
+- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys from SSM and manage notes in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
+- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).

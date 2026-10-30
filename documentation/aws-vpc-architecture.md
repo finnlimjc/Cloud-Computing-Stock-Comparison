@@ -1,7 +1,7 @@
 # AWS VPC Architecture
 
 ![alt text](../assets/stock-research-dashboard-vpc.png)
-> **Source:** [scripts/01-stock-research-dashboard-vpc.yaml](../scripts/01-stock-research-dashboard-vpc.yaml) (CloudFormation).
+> **Source:** [scripts/03-stock-research-dashboard-vpc.yaml](../scripts/03-stock-research-dashboard-vpc.yaml) (CloudFormation).
 
 > **Disclaimer:** Sandbox settings have restrictions on certain settings, which are all documented in this markdown.
 
