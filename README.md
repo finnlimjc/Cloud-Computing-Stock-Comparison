@@ -83,7 +83,7 @@ Saved documents are split between a **database** and an **object store**. The da
 |---|---|---|
 | Holds | Users, document metadata, and access rules | Document contents: Markdown reports and uploaded PDFs, later exported chart PDFs |
 | Local (`--local`) | SQLite file `local-data/app.db` | Folder `local-data/objects/` |
-| AWS (planned) | Amazon RDS PostgreSQL | Private Amazon S3 bucket, reached through the VPC's S3 gateway endpoint |
+| AWS (planned) | Amazon RDS for PostgreSQL in the VPC's private subnets | Private Amazon S3 bucket, reached through the VPC's S3 gateway endpoint |
 
 `local-data/` is ignored by Git. Market data (prices, news, statements) is not stored: it is fetched again and cached in memory by `src/dashboard/loaders.py`. API keys stay in `secrets.env` locally, and in AWS Secrets Manager on AWS.
 
@@ -147,7 +147,7 @@ example:    users/3/42/AAPL-vs-MSFT_overview_20261026-060500Z.md
 The AWS version needs no changes to the dashboard pages:
 
 - An `S3ObjectStore` with the same `put`, `get` and `delete` methods as `LocalObjectStore` in `src/storage/object_store.py`.
-- A PostgreSQL URL for RDS, read from Secrets Manager, passed to `Database`.
+- A PostgreSQL URL for RDS (endpoint from the database stack's outputs; credentials in Secrets Manager in production), passed to `Database`, plus a PostgreSQL driver in `requirements.txt`.
 - The backend choice in `open_store` in `src/app.py`.
 
 ## Project structure
@@ -188,7 +188,7 @@ The AWS version needs no changes to the dashboard pages:
 ├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
 ├── documentation/          # AWS architecture and database write-ups
 ├── assets/                 # Architecture diagrams
-├── scripts/                # CloudFormation template
+├── scripts/                # CloudFormation templates
 ├── local-data/             # Local database and saved files (created by --local; git-ignored)
 ├── secrets.env             # Your API keys (you create this; git-ignored)
 └── requirements.txt        # Python dependencies
@@ -205,3 +205,4 @@ The dashboard is designed to run in its own VPC on AWS. These documents describe
 - [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for the PDF notes. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
 - [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys from SSM and manage notes in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
 - [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
+- [AWS RDS database](documentation/aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).

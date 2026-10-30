@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Stock research dashboard - Amazon RDS for PostgreSQL database for users and
+  document metadata. Builds a DB subnet group over the two private subnets, a DB
+  security group that only accepts PostgreSQL traffic from the Web Security Group,
+  and a Single-AZ db.t3.micro instance (Dev/Test) with 20 GiB gp2 storage.
+  Deploy after 03-stock-research-dashboard-vpc.yaml. Region: us-east-1.
+
+# ---------------------------------------------------------------------------
+# PARAMETERS - values you can choose when creating the stack
+# ---------------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: stock-research-dashboard
+    Description: Value of the Project and CostCenter tags on the database.
+  Environment:
+    Type: String
+    Default: Prod
+    AllowedValues: [Dev, Test, Prod]
+    Description: Value of the Environment tag on the database.
+  Team:
+    Type: String
+    Default: DevOps
+    Description: Value of the Team tag on the database (team responsible).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: stock-research-dashboard-vpc from 03-stock-research-dashboard-vpc.yaml.
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-private1-us-east-1a (10.0.1.0/24).
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-private2-us-east-1b (10.0.3.0/24).
+  WebSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Web Security Group of the web servers, the only source allowed to reach the database.
+  DBMasterUsername:
+    Type: String
+    Default: main
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]{0,15}"
+    Description: Master username (1 to 16 alphanumeric characters, starting with a letter).
+  DBMasterPassword:
+    Type: String
+    Default: lab-password
+    NoEcho: true
+    MinLength: 8
+    AllowedPattern: "[^/'\"@]*"
+    Description: Master password (at least 8 characters, none of / ' " @). Test account only.
+
+Resources:
+  # -------------------------------------------------------------------------
+  # DB SUBNET GROUP - the subnets RDS may place the instance in. Both private
+  # subnets, so the database has no internet route. RDS requires subnets in at
+  # least 2 Availability Zones even for a Single-AZ instance.
+  # -------------------------------------------------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: stock-research-subnet-group
+      DBSubnetGroupDescription: Stock research dashboard subnet group.
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      Tags:
+        - Key: Name
+          Value: stock-research-subnet-group
+
+  # -------------------------------------------------------------------------
+  # DB SECURITY GROUP - PostgreSQL (5432) only from instances in the Web
+  # Security Group, referenced by group ID so it keeps working when the web
+  # servers' IPs change. Outbound traffic is allowed by default.
+  # -------------------------------------------------------------------------
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: DB Security Group
+      GroupDescription: Permit access from Web Security Group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref WebSecurityGroupId
+          Description: Permit PostgreSQL from web servers
+      Tags:
+        - Key: Name
+          Value: DB Security Group
+
+  # -------------------------------------------------------------------------
+  # RDS DB INSTANCE - PostgreSQL, Dev/Test template, Single-AZ (the sandbox
+  # does not support Multi-AZ). Burstable db.t3.micro: the dashboard has few
+  # users, long quiet stretches and short spikes (see documentation).
+  # Referencing the subnet group and security group makes CloudFormation create
+  # them before the instance.
+  # Snapshot: deleting the stack keeps a final snapshot of users' data.
+  # -------------------------------------------------------------------------
+  StockResearchDB:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: stock-research-db
+      Engine: postgres
+      EngineVersion: "18.3"
+      DBInstanceClass: db.t3.micro
+      MultiAZ: false
+
+      # Credentials - self managed, because Secrets Manager is disabled in the sandbox.
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      EnableIAMDatabaseAuthentication: false
+
+      # Storage - gp2 is the only type the sandbox allows, capped at 100 GiB.
+      # Autoscaling grows storage up to MaxAllocatedStorage when it runs low.
+      StorageType: gp2
+      AllocatedStorage: "20"
+      MaxAllocatedStorage: 100
+      StorageEncrypted: true
+
+      # Connectivity - private subnets only, no public IP.
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      PubliclyAccessible: false
+      Port: "5432"
+      CACertificateIdentifier: rds-ca-rsa2048-g1
+
+      # Database options - default.postgres18 parameter group is used when none is given.
+      DBName: stockresearch
+
+      # Monitoring - Database Insights Standard (7 days of Performance Insights
+      # is free). Enhanced Monitoring is not supported in the sandbox (interval 0).
+      DatabaseInsightsMode: standard
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      MonitoringInterval: 0
+
+      # Backup and maintenance - no preferred windows, so RDS picks them.
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+
+      Tags:
+        - Key: Name
+          Value: stock-research-db
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Team
+          Value: !Ref Team
+        - Key: DataClassification
+          Value: private
+        - Key: CostCenter
+          Value: !Ref ProjectName
+
+# ---------------------------------------------------------------------------
+# OUTPUTS - values the dashboard needs to connect
+# ---------------------------------------------------------------------------
+Outputs:
+  DBEndpointAddress:
+    Description: Host name of the database, reachable only from the Web Security Group.
+    Value: !GetAtt StockResearchDB.Endpoint.Address
+  DBEndpointPort:
+    Description: PostgreSQL port of the database.
+    Value: !GetAtt StockResearchDB.Endpoint.Port
+  DBName:
+    Description: Name of the initial database.
+    Value: stockresearch
+  DBSecurityGroupId:
+    Description: ID of the DB Security Group.
+    Value: !Ref DBSecurityGroup

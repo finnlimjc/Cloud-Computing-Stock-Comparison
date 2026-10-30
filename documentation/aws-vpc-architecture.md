@@ -7,7 +7,7 @@
 
 ## Overview
 
-The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through the public address of the web servers, and upload their PDF notes to Amazon S3.
+The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through the public address of the web servers, and upload their PDF notes to Amazon S3. The RDS database sits in the private subnets (see [aws-rds-database.md](aws-rds-database.md)).
 
 | Setting | Value |
 |---|---|
@@ -56,7 +56,7 @@ A subnet is "public" or "private" because of its route table, not the subnet its
 
 ### No NAT Gateway
 
-A NAT Gateway is intentionally not deployed. Both web servers sit in public subnets with public IPs, so they reach the internet (`git clone`, `pip`, market-data APIs) through the Internet Gateway. The private subnets hold no workload and have no internet route, which keeps them unreachable from outside. This also avoids the NAT Gateway's hourly and per-GB charges.
+A NAT Gateway is intentionally not deployed. Both web servers sit in public subnets with public IPs, so they reach the internet (`git clone`, `pip`, market-data APIs) through the Internet Gateway. The private subnets hold only the RDS database and have no internet route, which keeps it unreachable from outside. This also avoids the NAT Gateway's hourly and per-GB charges.
 
 ## Security
 
@@ -72,6 +72,10 @@ A NAT Gateway is intentionally not deployed. Both web servers sit in public subn
 - **HTTP is open to Anywhere-IPv4 in the sandbox** because the school's IP ranges are unknown. "My IP" would lock out students whose IP differs from the author's.
 - **Production:** restrict ports 80/8501 to the company's IP ranges (or place the servers behind a load balancer and allow only that).
 - Port 8501 is where Streamlit actually listens. Nothing listens on port 80 today; the rule is kept for a future reverse proxy or load balancer.
+
+### DB Security Group
+
+Created by [scripts/04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml). It allows only PostgreSQL (TCP 5432) from the Web Security Group, so only the web servers can reach the database. See [aws-rds-database.md](aws-rds-database.md#db-security-group).
 
 ## Compute
 
