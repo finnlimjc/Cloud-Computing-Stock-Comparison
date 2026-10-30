@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
 from src.storage import auth
-from src.storage.database import DOCUMENT_TYPES, VISIBILITIES, Database
+from src.storage.database import DOCUMENT_TYPES, OWNER_SCOPES, VISIBILITIES, Database, DocumentSearch
 from src.storage.object_store import LocalObjectStore
 
 # Filename building
@@ -240,8 +240,13 @@ class DocumentStore:
             self.objects.put(object_key, data)
         return document_id
     
-    def list_visible(self, user_id:int | None, is_admin:bool=False) -> list[dict]:
-        return self.database.list_documents(user_id, is_admin)
+    def list_visible(self, user_id:int | None, is_admin:bool=False, search:DocumentSearch=DocumentSearch()) -> list[dict]:
+        if search.owner_scope not in OWNER_SCOPES or any(document_type not in DOCUMENT_TYPES for document_type in search.document_types):
+            raise ValueError("Unknown owner scope or document type.")
+        return self.database.list_documents(user_id, is_admin, search)
+    
+    def list_tickers(self, user_id:int | None, is_admin:bool=False) -> list[str]:
+        return self.database.list_tickers(user_id, is_admin)
     
     def read(self, document_id:int, user_id:int | None, is_admin:bool=False) -> tuple[dict, bytes]:
         """Return a document's row and contents, raising ValueError when the user may not see it."""

@@ -4,10 +4,11 @@ import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.dashboard.analysis import collect_company_metrics, collect_financial_statements, load_analysis, parse_tickers, plain_words
-from src.dashboard.config import DIALOG_CSS, HISTORY_YEARS, MAX_STOCKS, MAX_UPLOAD_MB, MIN_RANGE_DAYS, PAGE_KEY, PDF_HEIGHT, RANGE_OPTIONS, STATEMENTS_PAGE, UPLOAD_TYPES, VISIBILITY_OPTIONS
+from src.dashboard.config import DIALOG_CSS, HISTORY_YEARS, MAX_STOCKS, MAX_UPLOAD_MB, MIN_RANGE_DAYS, OWNER_FILTERS, PAGE_KEY, PDF_HEIGHT, RANGE_OPTIONS, STATEMENTS_PAGE, UPLOAD_TYPES, VISIBILITY_OPTIONS
 from src.dashboard.dates import resolve_date_range, years_before
 from src.dashboard.financial_statements import selected_statement_ticker
 from src.storage import storage
+from src.storage.database import DOCUMENT_TYPES, DocumentSearch
 
 def render_analysis_form(today:date) -> None:
     """Render the sidebar form and run the requested stock analysis."""
@@ -161,6 +162,21 @@ def _render_admin_controls(store:storage.DocumentStore, user:dict, document:dict
         except (OSError, SQLAlchemyError) as error:
             st.error(f"Could not delete this document: {error}")
 
+def _render_search(store:storage.DocumentStore, user_id:int, is_admin:bool) -> DocumentSearch:
+    """Render the saved-document search box and filters, returning the search they describe."""
+    text = st.text_input("Search", placeholder="Title, file name, ticker or owner", key="document_search")
+    with st.expander("Filters"):
+        tickers = st.multiselect(
+            "Tickers",
+            store.list_tickers(user_id, is_admin),
+            placeholder="Any ticker",
+            key="document_search_tickers",
+            help="Only documents covering every selected ticker."
+        )
+        document_types = st.multiselect("Type", DOCUMENT_TYPES, format_func=str.title, placeholder="Any type", key="document_search_types")
+        owner = st.radio("Owner", list(OWNER_FILTERS), horizontal=True, key="document_search_owner")
+    return DocumentSearch(text, tuple(tickers), tuple(document_types), OWNER_FILTERS[owner])
+
 def render_saved_analyses(store:storage.DocumentStore, user:dict | None) -> tuple[dict, bytes] | None:
     """Render save, upload and saved-document controls, returning the document and contents to display if one was opened."""
     user_id = user["user_id"] if user else None
@@ -181,16 +197,25 @@ def render_saved_analyses(store:storage.DocumentStore, user:dict | None) -> tupl
         st.caption("Log in to save analyses, upload documents and see saved analyses.")
         return None
     
-    # List the documents this user may see
+    # Search the documents this user may see
     st.subheader("Previous Analyses")
+    search = DocumentSearch()
     try:
-        documents = {document["document_id"]: document for document in store.list_visible(user_id, is_admin)}
+        search = _render_search(store, user_id, is_admin)
+        documents = {document["document_id"]: document for document in store.list_visible(user_id, is_admin, search)}
     except SQLAlchemyError as error:
         documents = {}
         st.error(f"Could not list saved analyses: {error}")
+    
+    searching = search != DocumentSearch()
     if not documents:
-        st.caption("No saved analyses yet. Run an analysis and click Save Analysis to keep it here.")
+        if searching:
+            st.caption("No saved documents match this search.")
+        else:
+            st.caption("No saved analyses yet. Run an analysis and click Save Analysis to keep it here.")
         return None
+    if searching:
+        st.caption(f"Matching documents: {len(documents)}")
     
     # Preview and open the selected document
     selected_id = st.selectbox(

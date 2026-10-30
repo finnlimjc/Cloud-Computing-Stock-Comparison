@@ -80,7 +80,7 @@ An insert or update that breaks a rule fails with an `IntegrityError`. To allow 
 
 | Index | Columns | Used for |
 |---|---|---|
-| `ix_document_tickers_ticker` | `ticker` | Finding every document that covers a given ticker. The primary key is sorted by `document_id` first, so it cannot serve this lookup. |
+| `ix_document_tickers_ticker` | `ticker` | Finding every document that covers a given ticker, as the **Tickers** search filter does (one lookup per selected ticker, all of which must match). The primary key is sorted by `document_id` first, so it cannot serve this lookup. |
 
 **Example rows** for document `7`, a comparison of `AAPL` and `MSFT`:
 

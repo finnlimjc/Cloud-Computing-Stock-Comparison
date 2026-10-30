@@ -67,6 +67,7 @@ VALUATION_HELP = {
 # Storage Settings
 MAX_UPLOAD_MB = 20
 VISIBILITY_OPTIONS = ["Private", "Public"]
+OWNER_FILTERS = {"Anyone": "all", "Me": "mine", "Others": "others"}
 UPLOAD_TYPES = {"pdf": "application/pdf", "md": "text/markdown"}
 PDF_HEIGHT = 700
 

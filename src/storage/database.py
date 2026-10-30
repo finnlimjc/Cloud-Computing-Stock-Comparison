@@ -1,12 +1,14 @@
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, Connection, Date, DateTime, ForeignKey, Index, Integer,
-                        MetaData, String, Table, create_engine, delete, event, false, insert, inspect, or_, select, text, true, update)
+                        MetaData, String, Table, create_engine, delete, event, exists, false, insert, inspect, or_, select, text, true, update)
 
 # Allowed column values
 VISIBILITIES = ["private", "public"]
 DOCUMENT_TYPES = ["overview", "single", "statements", "upload"]
+OWNER_SCOPES = ["all", "mine", "others"]
 
 # Schema (portable SQL: the same tables are created on SQLite locally and PostgreSQL on RDS)
 metadata = MetaData()
@@ -72,6 +74,51 @@ def _visible_to(user_id:int | None, is_admin:bool) -> object:
     if user_id is None:
         return false()
     return or_(documents.c.owner_id == user_id, documents.c.visibility == "public")
+
+@dataclass(frozen=True)
+class DocumentSearch:
+    """
+    Filters on the saved documents list. The defaults match every document.
+    
+    Inputs:
+    - text: words that must each appear, ignoring case, in the title, filename, owner's username or a ticker
+    - tickers: symbols the document must all cover
+    - document_types: allowed document types, or empty for any
+    - owner_scope: all, mine (owned by the searching user) or others
+    """
+    
+    text:str = ""
+    tickers:tuple[str, ...] = ()
+    document_types:tuple[str, ...] = ()
+    owner_scope:str = "all"
+
+def _word_matches(word:str) -> object:
+    ticker_match = exists().where(document_tickers.c.document_id == documents.c.document_id, document_tickers.c.ticker.icontains(word, autoescape=True))
+    match = or_(
+        documents.c.title.icontains(word, autoescape=True),
+        documents.c.filename.icontains(word, autoescape=True),
+        users.c.username.icontains(word, autoescape=True),
+        ticker_match
+    )
+    return match
+
+def _search_filters(user_id:int | None, search:DocumentSearch) -> list:
+    """Build the WHERE conditions for a document search, all of which must hold."""
+    filters = [_word_matches(word) for word in search.text.split()]
+    filters.extend(
+        documents.c.document_id.in_(select(document_tickers.c.document_id).where(document_tickers.c.ticker == ticker)) #served by ix_document_tickers_ticker
+        for ticker in search.tickers
+    )
+    
+    if search.document_types:
+        filters.append(documents.c.document_type.in_(search.document_types))
+    
+    if search.owner_scope == "mine":
+        filters.append(documents.c.owner_id == user_id)
+    elif search.owner_scope == "others":
+        filters.append(documents.c.owner_id != user_id)
+    
+    return filters
 
 class Database:
     """
@@ -158,12 +205,28 @@ class Database:
         )
         return query
     
-    def list_documents(self, user_id:int | None, is_admin:bool=False) -> list[dict]:
-        """Return the documents a user may see, newest first (none when user_id is None, every document for an admin)."""
-        query = self._documents_query(user_id, is_admin).order_by(documents.c.created_at.desc(), documents.c.document_id.desc())
+    def list_documents(self, user_id:int | None, is_admin:bool=False, search:DocumentSearch=DocumentSearch()) -> list[dict]:
+        """Return the documents a user may see that match the search, newest first (none when user_id is None, every document for an admin)."""
+        query = (
+            self._documents_query(user_id, is_admin)
+            .where(*_search_filters(user_id, search))
+            .order_by(documents.c.created_at.desc(), documents.c.document_id.desc())
+        )
         with self.engine.connect() as connection:
             rows = [dict(row._mapping) for row in connection.execute(query)]
             return self._attach_tickers(connection, rows)
+    
+    def list_tickers(self, user_id:int | None, is_admin:bool=False) -> list[str]:
+        """Return every ticker covered by a document the user may see, alphabetically."""
+        query = (
+            select(document_tickers.c.ticker)
+            .distinct()
+            .join(documents, documents.c.document_id == document_tickers.c.document_id)
+            .where(_visible_to(user_id, is_admin))
+            .order_by(document_tickers.c.ticker)
+        )
+        with self.engine.connect() as connection:
+            return list(connection.execute(query).scalars())
     
     def get_document(self, document_id:int, user_id:int | None, is_admin:bool=False) -> dict | None:
         """Return one document if the user may see it, otherwise None."""
