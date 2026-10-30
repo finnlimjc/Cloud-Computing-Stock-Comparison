@@ -1,3 +1,4 @@
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.plots import theme
@@ -62,6 +63,17 @@ VALUATION_HELP = {
     "EV/EBITDA": "Enterprise value (market cap plus debt minus cash) divided by operating earnings before depreciation. Useful for comparing companies with different debt levels.",
     "Dividend yield": "Yearly dividends as a percentage of the share price."
 }
+
+# Storage Settings
+MAX_UPLOAD_MB = 20
+VISIBILITY_OPTIONS = ["Private", "Public"]
+UPLOAD_TYPES = {"pdf": "application/pdf", "md": "text/markdown"}
+PDF_HEIGHT = 700
+
+# Local Storage
+LOCAL_DATA_DIR = Path(__file__).resolve().parents[2] / "local-data"
+LOCAL_DB_PATH = LOCAL_DATA_DIR / "app.db"
+LOCAL_OBJECTS_DIR = LOCAL_DATA_DIR / "objects"
 
 # Pages
 PAGE_KEY = "active_page"
