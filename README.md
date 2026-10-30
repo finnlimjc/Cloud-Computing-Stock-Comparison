@@ -54,7 +54,7 @@ After running a single-stock or comparison analysis, choose **Private** or **Pub
 
 To add your own notes, open **Upload document**. Pick a Markdown (`.md`) or PDF file of up to 20 MB, and optionally give it a title (defaults to the file name), tickers, and visibility. It is saved as `Title_upload_<time>.md` or `.pdf`.
 
-**Previous Analyses** lists your own documents and everyone's public ones, newest first. The line under the selector shows the tickers, type, time range, creation time, owner, and visibility. Click **Show** to open the document in a pop-up: Markdown is rendered as formatted text, and PDFs open in a viewer. Both have a **Download** button. On your own documents you can also switch between private and public (**Make public** / **Make private**) or **Delete** them.
+**Previous Analyses** lists your own documents and everyone's public ones, newest first. To narrow the list, type in **Search**: every word must appear in the title, file name, owner's username or a ticker, ignoring case (for example `aapl overview`). Under **Filters** you can also keep only documents covering every selected ticker, of chosen types, or owned by you or by others. The line under the selector shows the tickers, type, time range, creation time, owner, and visibility. Click **Show** to open the document in a pop-up: Markdown is rendered as formatted text, and PDFs open in a viewer. Both have a **Download** button. On your own documents you can also switch between private and public (**Make public** / **Make private**) or **Delete** them.
 
 ### Demo accounts and the admin
 
@@ -202,4 +202,6 @@ The AWS version needs no changes to the dashboard pages:
 The dashboard is designed to run in its own VPC on AWS. These documents describe the design:
 
 - [AWS IAM access architecture](documentation/aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
-- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/stock-research-dashboard-vpc.yaml](scripts/stock-research-dashboard-vpc.yaml).
+- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/01-stock-research-dashboard-vpc.yaml](scripts/01-stock-research-dashboard-vpc.yaml).
+- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for the PDF notes. Built from [scripts/02-stock-research-s3-bucket.yaml](scripts/02-stock-research-s3-bucket.yaml).
+- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys from SSM and manage notes in S3. Built from [scripts/03-stock-research-ec2-role-policies.yaml](scripts/03-stock-research-ec2-role-policies.yaml).
