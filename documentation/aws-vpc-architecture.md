@@ -1,7 +1,7 @@
 # AWS VPC Architecture
 
 ![alt text](../assets/stock-research-dashboard-vpc.png)
-> **Source:** [scripts/stock-research-dashboard-vpc.yaml](../scripts/stock-research-dashboard-vpc.yaml) (CloudFormation).
+> **Source:** [scripts/01-stock-research-dashboard-vpc.yaml](../scripts/01-stock-research-dashboard-vpc.yaml) (CloudFormation).
 
 > **Disclaimer:** Sandbox settings have restrictions on certain settings, which are all documented in this markdown.
 
@@ -86,11 +86,13 @@ Two identical EC2 instances, one in each public subnet, sharing the same Web Sec
 | Network | Auto-assigned public IPv4 |
 | Security group | Web Security Group |
 | Key pair | `vockey` |
+| IAM instance profile | `EC2InstanceRole` (`InstanceProfileName` parameter, optional). See [aws-ec2-iam-role.md](aws-ec2-iam-role.md). |
+| Python | 3.11 (`python3.11` package) |
 | App | Streamlit on `0.0.0.0:8501`|
 
 ### Bootstrap (user data)
 
-On first boot each instance installs Git and Python, clones the app from `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` into `/opt/app`, installs `requirements.txt` into a virtual environment, and starts the Streamlit service. Allow a few minutes after the stack finishes.
+On first boot each instance installs Git and Python 3.11 (the AMI's default `python3` is 3.9), clones the app from `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` into `/opt/app`, installs `requirements.txt` into a Python 3.11 virtual environment, and starts the Streamlit service. Allow a few minutes after the stack finishes.
 
 ### Tags
 
@@ -100,8 +102,8 @@ Both instances carry the same tags; only `Name` differs.
 |---|---|
 | Name | `Web Server 1` / `Web Server 2` |
 | Project | `stock-research-dashboard` (`ProjectName` parameter) |
-| Environment | `Prod` |
-| Team | `DevOps` |
+| Environment | `Prod` (`Environment` parameter) |
+| Team | `DevOps` (`Team` parameter) |
 | CostCenter | Same as Project (`ProjectName` parameter) |
 
 ## Sandbox vs production
