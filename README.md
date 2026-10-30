@@ -47,7 +47,7 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
 
 Anyone can run analyses. To save documents, create an account in the sidebar (**Sign up**) or **Log in**. Usernames are 3 to 32 letters, numbers, `-` or `_` (not case-sensitive), and passwords need at least 8 characters. Refreshing the browser logs you out.
 
-After running a single-stock or comparison analysis, choose **Private** or **Public** under **Save as**, then click **Save Analysis** to save a Markdown report. Private documents are visible only to you. Public documents are visible to every user, including visitors who are not logged in. What is saved depends on the open tab:
+After running a single-stock or comparison analysis, choose **Private** or **Public** under **Save as**, then click **Save Analysis** to save a Markdown report. Private documents are visible only to you. Public documents are visible to every logged-in user. Visitors who are not logged in see no saved documents at all. What is saved depends on the open tab:
 
 - **Stock Performance** or **Company Metrics**: price metrics and news, plus valuation, financials, business-model ratios, analyst sentiment with the number of analysts in each bucket, and price targets. Saved as `TICKERS_overview_<time>.md` (or `_single_` for one stock).
 - **Financial Statements**: only the company selected in the pills. The report starts with a short explanation of how the figures tally, then each statement's main table followed by its other line items. Saved as `TICKER_statements_<time>.md`.
@@ -55,6 +55,18 @@ After running a single-stock or comparison analysis, choose **Private** or **Pub
 To add your own notes, open **Upload document**. Pick a Markdown (`.md`) or PDF file of up to 20 MB, and optionally give it a title (defaults to the file name), tickers, and visibility. It is saved as `Title_upload_<time>.md` or `.pdf`.
 
 **Previous Analyses** lists your own documents and everyone's public ones, newest first. The line under the selector shows the tickers, type, time range, creation time, owner, and visibility. Click **Show** to open the document in a pop-up: Markdown is rendered as formatted text, and PDFs open in a viewer. Both have a **Download** button. On your own documents you can also switch between private and public (**Make public** / **Make private**) or **Delete** them.
+
+### Demo accounts and the admin
+
+The first time the app starts with `--local`, it creates four accounts: `admin`, `alice`, `bob` and `carol`. Each gets a random password, which is appended to `local-data/seed-credentials.txt` (git-ignored, like the rest of `local-data/`). Open that file to find the passwords. Accounts that already exist are skipped, so restarting the app creates nothing new and never changes a password. The code is in `src/storage/seed.py`.
+
+`admin` is the only admin. An admin:
+
+- sees every document in **Previous Analyses**, including other people's private ones, and can open and download them;
+- can **Delete (admin)** any document, private or public, which removes its database row and its file;
+- cannot switch other people's documents between private and public. That stays with the owner.
+
+Signing up always creates a normal user, and there is no screen for promoting a user to admin. To change who is an admin, edit `SEED_ACCOUNTS` in `src/storage/seed.py` before the account is first created, or set `is_admin` directly in the `users` table. If you delete `admin` from the table, the next start creates it again with a new password.
 
 ### How timestamps are shown
 
@@ -77,7 +89,7 @@ Saved documents are split between a **database** and an **object store**. The da
 
 ### Database tables
 
-- **users**: `user_id`, `username` (unique, lower case), `password_hash`, `created_at`. Passwords are never stored. They are hashed with scrypt, using a random salt per user, and stored as `scrypt$n$r$p$salt$hash` so the cost can be raised later.
+- **users**: `user_id`, `username` (unique, lower case), `password_hash`, `is_admin`, `created_at`. Passwords are never stored. They are hashed with scrypt, using a random salt per user, and stored as `scrypt$n$r$p$salt$hash` so the cost can be raised later.
 - **documents**: `document_id`, `owner_id`, `filename`, `object_key`, `title`, `document_type` (`overview`, `single`, `statements` or `upload`), `visibility` (`private` or `public`), `content_type`, `size_bytes`, `sha256`, `start_date`, `end_date`, `range_label`, `created_at`. Indexed by owner and by visibility, each with creation time, which covers the two queries the app runs: "my documents" and "public documents".
 - **document_tickers**: one row per ticker a document covers, with its position, so documents can later be filtered by ticker.
 
@@ -166,6 +178,7 @@ The AWS version needs no changes to the dashboard pages:
 │   │   ├── auth.py             # Password hashing and username/password rules
 │   │   ├── database.py         # Users and document metadata tables (SQLAlchemy Core)
 │   │   ├── object_store.py     # File contents by object key (local folder; S3 later)
+│   │   ├── seed.py             # Creates the demo admin and users on first start
 │   │   └── storage.py          # Markdown report builders and the DocumentStore
 │   └── analysis/               # Calculations on loaded data
 │       ├── transformation.py   # Price metrics, summaries, and relative time

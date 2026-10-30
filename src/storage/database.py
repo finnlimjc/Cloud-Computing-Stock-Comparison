@@ -1,8 +1,8 @@
 from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 
-from sqlalchemy import (CheckConstraint, Column, Connection, Date, DateTime, ForeignKey, Index, Integer, 
-                        MetaData, String, Table, create_engine, delete, event, insert, or_, select, update)
+from sqlalchemy import (Boolean, CheckConstraint, Column, Connection, Date, DateTime, ForeignKey, Index, Integer,
+                        MetaData, String, Table, create_engine, delete, event, false, insert, inspect, or_, select, text, true, update)
 
 # Allowed column values
 VISIBILITIES = ["private", "public"]
@@ -18,6 +18,7 @@ users = Table(
     Column("user_id", Integer, primary_key=True, autoincrement=True),
     Column("username", String(32), nullable=False, unique=True),
     Column("password_hash", String(255), nullable=False),
+    Column("is_admin", Boolean, nullable=False, server_default=false()),
     Column("created_at", DateTime(timezone=True), nullable=False)
 )
 
@@ -64,12 +65,13 @@ def _as_utc(moment:datetime) -> datetime:
         return moment.replace(tzinfo=timezone.utc)
     return moment.astimezone(timezone.utc)
 
-def _visible_to(user_id:int | None) -> object:
-    """Filter documents to those a user may see: their own plus every public one."""
-    public = documents.c.visibility == "public"
+def _visible_to(user_id:int | None, is_admin:bool) -> object:
+    """Filter documents to those a user may see: their own plus every public one, or everything for an admin. Visitors who are not logged in see nothing."""
+    if is_admin:
+        return true()
     if user_id is None:
-        return public
-    return or_(documents.c.owner_id == user_id, public)
+        return false()
+    return or_(documents.c.owner_id == user_id, documents.c.visibility == "public")
 
 class Database:
     """
@@ -84,14 +86,22 @@ class Database:
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", _enable_sqlite_foreign_keys) #SQLite ignores ON DELETE CASCADE without this
         metadata.create_all(self.engine)
+        self._add_missing_columns()
+    
+    def _add_missing_columns(self) -> None:
+        """Add users.is_admin to databases created before it existed, because create_all skips tables that already exist."""
+        columns = [column["name"] for column in inspect(self.engine).get_columns("users")]
+        if "is_admin" not in columns:
+            with self.transaction() as connection:
+                connection.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
     
     def transaction(self) -> AbstractContextManager[Connection]:
         """Open a connection whose changes commit together, or roll back if anything raises."""
         return self.engine.begin()
     
-    def create_user(self, username:str, password_hash:str) -> int:
+    def create_user(self, username:str, password_hash:str, is_admin:bool=False) -> int:
         """Insert a user and return their id, raising IntegrityError when the username is taken."""
-        values = {"username": username, "password_hash": password_hash, "created_at": datetime.now(timezone.utc)}
+        values = {"username": username, "password_hash": password_hash, "is_admin": is_admin, "created_at": datetime.now(timezone.utc)}
         with self.transaction() as connection:
             result = connection.execute(insert(users).values(**values))
         return result.inserted_primary_key[0]
@@ -140,24 +150,24 @@ class Database:
             row["created_at"] = _as_utc(row["created_at"])
         return rows
     
-    def _documents_query(self, user_id:int | None) -> object:
+    def _documents_query(self, user_id:int | None, is_admin:bool) -> object:
         query = (
             select(documents, users.c.username.label("owner"))
             .join(users, users.c.user_id == documents.c.owner_id)
-            .where(_visible_to(user_id))
+            .where(_visible_to(user_id, is_admin))
         )
         return query
     
-    def list_documents(self, user_id:int | None) -> list[dict]:
-        """Return the documents a user may see, newest first (public documents only when user_id is None)."""
-        query = self._documents_query(user_id).order_by(documents.c.created_at.desc(), documents.c.document_id.desc())
+    def list_documents(self, user_id:int | None, is_admin:bool=False) -> list[dict]:
+        """Return the documents a user may see, newest first (none when user_id is None, every document for an admin)."""
+        query = self._documents_query(user_id, is_admin).order_by(documents.c.created_at.desc(), documents.c.document_id.desc())
         with self.engine.connect() as connection:
             rows = [dict(row._mapping) for row in connection.execute(query)]
             return self._attach_tickers(connection, rows)
     
-    def get_document(self, document_id:int, user_id:int | None) -> dict | None:
+    def get_document(self, document_id:int, user_id:int | None, is_admin:bool=False) -> dict | None:
         """Return one document if the user may see it, otherwise None."""
-        query = self._documents_query(user_id).where(documents.c.document_id == document_id)
+        query = self._documents_query(user_id, is_admin).where(documents.c.document_id == document_id)
         with self.engine.connect() as connection:
             row = connection.execute(query).first()
             if row is None:
@@ -175,11 +185,18 @@ class Database:
             result = connection.execute(query)
         return result.rowcount == 1
     
-    def delete_document(self, connection:Connection, document_id:int, owner_id:int) -> str | None:
-        """Delete a document owned by owner_id within the caller's transaction, returning its object key or None if nothing was deleted."""
-        query = (
-            delete(documents)
-            .where(documents.c.document_id == document_id, documents.c.owner_id == owner_id)
-            .returning(documents.c.object_key)
-        )
-        return connection.execute(query).scalar_one_or_none()
+    def delete_document(self, connection:Connection, document_id:int, owner_id:int | None) -> str | None:
+        """Delete a document within the caller's transaction, returning its object key or None if nothing was deleted.
+        
+        Inputs:
+        - connection: open transaction from Database.transaction
+        - document_id: document to delete
+        - owner_id: only delete if this user owns it; None deletes whoever owns it (admin)
+        
+        Outputs:
+        - Object key of the deleted file, or None
+        """
+        query = delete(documents).where(documents.c.document_id == document_id)
+        if owner_id is not None:
+            query = query.where(documents.c.owner_id == owner_id)
+        return connection.execute(query.returning(documents.c.object_key)).scalar_one_or_none()

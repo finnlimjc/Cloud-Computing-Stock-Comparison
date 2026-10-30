@@ -176,17 +176,17 @@ class DocumentStore:
         self.objects = objects
         self._dummy_hash = auth.hash_password("unused-password") #checked when a username is unknown so both failures take as long
     
-    def register(self, username:str, password:str) -> dict:
-        """Create an account, raising ValueError with a readable reason when it cannot."""
+    def register(self, username:str, password:str, is_admin:bool=False) -> dict:
+        """Create an account, raising ValueError with a readable reason when it cannot. Only seeding passes is_admin."""
         username = auth.normalize_username(username)
         problem = auth.validate_username(username) or auth.validate_password(password)
         if problem:
             raise ValueError(problem)
         try:
-            user_id = self.database.create_user(username, auth.hash_password(password))
+            user_id = self.database.create_user(username, auth.hash_password(password), is_admin)
         except IntegrityError:
             raise ValueError("That username is already taken.") from None
-        return {"user_id": user_id, "username": username}
+        return {"user_id": user_id, "username": username, "is_admin": is_admin}
     
     def authenticate(self, username:str, password:str) -> dict | None:
         """Return the user for a correct username and password, otherwise None."""
@@ -194,7 +194,7 @@ class DocumentStore:
         stored_hash = user["password_hash"] if user else self._dummy_hash
         if not auth.verify_password(password, stored_hash) or user is None:
             return None
-        return {"user_id": user["user_id"], "username": user["username"]}
+        return {"user_id": user["user_id"], "username": user["username"], "is_admin": bool(user["is_admin"])}
     
     def save(self, owner_id:int, data:bytes, content_type:str, title:str, document_type:str, visibility:str, tickers:list[str], created_at:datetime, extension:str, start_date:date | None=None, end_date:date | None=None, range_label:str | None=None) -> int:
         """Save a document's row and file together, leaving neither behind if either fails.
@@ -240,12 +240,12 @@ class DocumentStore:
             self.objects.put(object_key, data)
         return document_id
     
-    def list_visible(self, user_id:int | None) -> list[dict]:
-        return self.database.list_documents(user_id)
+    def list_visible(self, user_id:int | None, is_admin:bool=False) -> list[dict]:
+        return self.database.list_documents(user_id, is_admin)
     
-    def read(self, document_id:int, user_id:int | None) -> tuple[dict, bytes]:
+    def read(self, document_id:int, user_id:int | None, is_admin:bool=False) -> tuple[dict, bytes]:
         """Return a document's row and contents, raising ValueError when the user may not see it."""
-        document = self.database.get_document(document_id, user_id)
+        document = self.database.get_document(document_id, user_id, is_admin)
         if document is None:
             raise ValueError("This document does not exist or is private.")
         return document, self.objects.get(document["object_key"])
@@ -255,10 +255,11 @@ class DocumentStore:
             raise ValueError("Unknown visibility.")
         return self.database.set_visibility(document_id, owner_id, visibility)
     
-    def delete(self, document_id:int, owner_id:int) -> bool:
-        """Delete a document's row and file, only for its owner. Returns whether anything was deleted."""
+    def delete(self, document_id:int, user_id:int, is_admin:bool=False) -> bool:
+        """Delete a document's row and file, only for its owner unless the user is an admin. Returns whether anything was deleted."""
+        required_owner = None if is_admin else user_id
         with self.database.transaction() as connection: #a failed file delete rolls the row back
-            object_key = self.database.delete_document(connection, document_id, owner_id)
+            object_key = self.database.delete_document(connection, document_id, required_owner)
             if object_key is None:
                 return False
             self.objects.delete(object_key)

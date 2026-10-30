@@ -152,9 +152,19 @@ def _render_owner_controls(store:storage.DocumentStore, user:dict, document:dict
         except (OSError, SQLAlchemyError) as error:
             st.error(f"Could not delete this document: {error}")
 
+def _render_admin_controls(store:storage.DocumentStore, user:dict, document:dict) -> None:
+    """Render a delete control for an admin viewing a document they do not own."""
+    if st.button("Delete (admin)", use_container_width=True):
+        try:
+            store.delete(document["document_id"], user["user_id"], is_admin=True)
+            st.rerun()
+        except (OSError, SQLAlchemyError) as error:
+            st.error(f"Could not delete this document: {error}")
+
 def render_saved_analyses(store:storage.DocumentStore, user:dict | None) -> tuple[dict, bytes] | None:
     """Render save, upload and saved-document controls, returning the document and contents to display if one was opened."""
     user_id = user["user_id"] if user else None
+    is_admin = bool(user and user.get("is_admin")) #.get: sessions opened before the admin role existed lack the key
     
     # Save the current analysis and upload documents
     result = st.session_state.get("analysis_results")
@@ -168,12 +178,13 @@ def render_saved_analyses(store:storage.DocumentStore, user:dict | None) -> tupl
                     st.error(f"Could not save this analysis: {error}")
         _render_upload(store, user)
     else:
-        st.caption("Log in to save analyses and upload documents.")
+        st.caption("Log in to save analyses, upload documents and see saved analyses.")
+        return None
     
     # List the documents this user may see
     st.subheader("Previous Analyses")
     try:
-        documents = {document["document_id"]: document for document in store.list_visible(user_id)}
+        documents = {document["document_id"]: document for document in store.list_visible(user_id, is_admin)}
     except SQLAlchemyError as error:
         documents = {}
         st.error(f"Could not list saved analyses: {error}")
@@ -193,11 +204,13 @@ def render_saved_analyses(store:storage.DocumentStore, user:dict | None) -> tupl
     opened = None
     if st.button("Show", use_container_width=True):
         try:
-            opened = store.read(selected_id, user_id)
+            opened = store.read(selected_id, user_id, is_admin)
         except (OSError, ValueError, SQLAlchemyError) as error:
             st.error(f"Could not open this analysis: {error}")
     if user and document["owner_id"] == user_id:
         _render_owner_controls(store, user, document)
+    elif is_admin:
+        _render_admin_controls(store, user, document)
     return opened
 
 @st.dialog("Previous analysis", width="large")

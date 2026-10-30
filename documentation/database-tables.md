@@ -15,7 +15,10 @@ users 1 ──── * documents 1 ──── * document_tickers
 | `user_id` | Integer, primary key | Auto-incrementing id of the user. | `1` |
 | `username` | String(32), unique, required | Login name. Must be unique, so creating a duplicate raises an `IntegrityError`. | `finn` |
 | `password_hash` | String(255), required | Hash of the password. The plain password is never stored. | `$2b$12$KIX...` |
+| `is_admin` | Boolean, required, defaults to false | Whether the user is an admin. An admin can see and delete every document, private or public. Sign-up always creates `false`; only the seed script (`src/storage/seed.py`) creates an admin. | `false` |
 | `created_at` | DateTime (timezone-aware), required | When the account was created, in UTC. | `2026-10-26 06:05:00+00:00` |
+
+**Seeded accounts:** when the dashboard starts with `--local`, `seed_accounts` creates any of `admin` (admin), `alice`, `bob` and `carol` that do not exist yet. Each gets a random password, appended to `local-data/seed-credentials.txt` (gitignored). Running it again creates nothing. On a database created before `is_admin` existed, `Database` adds the column on startup.
 
 # documents
 
@@ -54,7 +57,7 @@ An insert or update that breaks a rule fails with an `IntegrityError`. To allow 
 | Index | Columns | Used for |
 |---|---|---|
 | `ix_documents_owner_created` | `owner_id`, `created_at` | The `owner_id = :user_id` half of the visibility filter (`owner_id = :user_id OR visibility = 'public'`), which finds a user's own documents. Because `created_at` is second, rows come out already in newest-first order, so no separate sort is needed. |
-| `ix_documents_visibility_created` | `visibility`, `created_at` | The `visibility = 'public'` half of the same filter, which finds every public document, newest first. Logged-out visitors run only this half. Without it, the `OR` would force a scan of the whole table, reading every private document just to skip it. It helps most when public documents are a minority, since `visibility` has only two values. At this project's scale it is cheap insurance rather than a measurable speed-up. |
+| `ix_documents_visibility_created` | `visibility`, `created_at` | The `visibility = 'public'` half of the same filter, which finds every public document, newest first. Visitors who are not logged in see no documents, so they run neither half. Without it, the `OR` would force a scan of the whole table, reading every private document just to skip it. It helps most when public documents are a minority, since `visibility` has only two values. At this project's scale it is cheap insurance rather than a measurable speed-up. |
 
 # document_tickers
 

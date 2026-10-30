@@ -6,7 +6,8 @@ def render_login(store:DocumentStore) -> dict | None:
     """Render log in, sign up and log out controls, returning the signed-in user if there is one."""
     user = st.session_state.get("user")
     if user:
-        st.caption(f"Signed in as **{user['username']}**")
+        role = " (admin)" if user.get("is_admin") else ""
+        st.caption(f"Signed in as **{user['username']}**{role}")
         if st.button("Log out", use_container_width=True):
             st.session_state.user = None
             st.rerun()

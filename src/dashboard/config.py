@@ -74,6 +74,7 @@ PDF_HEIGHT = 700
 LOCAL_DATA_DIR = Path(__file__).resolve().parents[2] / "local-data"
 LOCAL_DB_PATH = LOCAL_DATA_DIR / "app.db"
 LOCAL_OBJECTS_DIR = LOCAL_DATA_DIR / "objects"
+SEED_CREDENTIALS_PATH = LOCAL_DATA_DIR / "seed-credentials.txt"
 
 # Pages
 PAGE_KEY = "active_page"

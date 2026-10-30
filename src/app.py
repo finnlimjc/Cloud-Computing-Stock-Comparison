@@ -5,12 +5,13 @@ import streamlit as st
 
 from src.dashboard.auth import render_login
 from src.dashboard.company_metrics import show_comparison_dashboard
-from src.dashboard.config import LOCAL_DB_PATH, LOCAL_OBJECTS_DIR, PAGE_CSS, PAGE_KEY, PAGE_NAMES
+from src.dashboard.config import LOCAL_DB_PATH, LOCAL_OBJECTS_DIR, PAGE_CSS, PAGE_KEY, PAGE_NAMES, SEED_CREDENTIALS_PATH
 from src.dashboard.financial_statements import show_financial_statements
 from src.dashboard.performance import render_dashboard
 from src.dashboard.sidebar import render_analysis_form, render_saved_analyses, show_saved_analysis
 from src.storage.database import Database
 from src.storage.object_store import LocalObjectStore
+from src.storage.seed import seed_accounts
 from src.storage.storage import DocumentStore
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +28,7 @@ def open_store(local:bool) -> DocumentStore | None:
         return None
     LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     store = DocumentStore(Database(f"sqlite:///{LOCAL_DB_PATH}"), LocalObjectStore(LOCAL_OBJECTS_DIR))
+    seed_accounts(store, SEED_CREDENTIALS_PATH)
     return store
 
 def main() -> None:
