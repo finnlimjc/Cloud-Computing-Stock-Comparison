@@ -2,6 +2,8 @@
 
 A Streamlit stock research dashboard, plus the AWS architecture designed to host it.
 
+![alt text](assets/cloud-architecture.png)
+
 ## Features
 
 ### Running an analysis
@@ -303,4 +305,4 @@ The dashboard is designed to run in its own VPC on AWS. These documents describe
 - [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys and storage settings from SSM, write the demo account passwords there, and manage documents in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
 - [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
 - [AWS RDS database](documentation/aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).
-- [AWS load balancer and Auto Scaling](documentation/aws-load-balancer-auto-scaling.md): internet-facing Application Load Balancer with a sticky target group on port 8501, and an Auto Scaling group of 2 to 6 instances in the private subnets that tracks 60% average CPU. Built from [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml).
+- [AWS Load Balancer and Auto Scaling](documentation/aws-load-balancer-auto-scaling.md): internet-facing Application Load Balancer with a sticky target group on port 8501, and an Auto Scaling group of 2 to 6 instances in the private subnets that tracks 60% average CPU. Built from [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml).

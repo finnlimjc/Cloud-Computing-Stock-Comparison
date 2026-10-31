@@ -36,7 +36,7 @@ users 1 ──── * documents 1 ──── * document_tickers
 | `visibility` | String(8), required | Who can see the document. `private` is visible only to the owner, and `public` is visible to every logged-in user. Admins see both. Must be one of those two values (checked by `ck_documents_visibility`). | `private` |
 | `content_type` | String(64), required | Media type of the file, used when downloading or previewing it. | `text/markdown` |
 | `size_bytes` | Integer, required | Size of the file in bytes. | `18432` |
-| `sha256` | String(64), required | SHA-256 hash of the file contents, as hex. Used to check integrity. | `9f86d081884c7d659a2f...` |
+| `sha256` | String(64), required | SHA-256 hash of the file contents, as hex. Recorded at save time, intended for integrity checks and duplicate detection (not yet verified anywhere). | `9f86d081884c7d659a2f...` |
 | `start_date` | Date, optional | Start of the price range analysed. Empty for documents with no range, such as uploads. | `2021-10-26` |
 | `end_date` | Date, optional | End of the price range analysed. | `2026-10-26` |
 | `range_label` | String(32), optional | The time range option chosen in the sidebar: `1 year`, `5 years`, `10 years`, `20 years` or `Custom`. | `5 years` |
