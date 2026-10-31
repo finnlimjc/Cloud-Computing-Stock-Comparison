@@ -98,8 +98,8 @@ Two identical EC2 instances, one in each public subnet, sharing the same Web Sec
 
 On first boot each instance installs Git and Python 3.11 (the AMI's default `python3` is 3.9), clones the app from `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` into `/opt/app`, installs `requirements.txt` into a Python 3.11 virtual environment, and starts the Streamlit service. Allow a few minutes after the stack finishes.
 
-- The service runs `src/app.py` without `--local`, so the app uses RDS and S3 and reads its settings from SSM Parameter Store with the instance role. boto3 takes the Region from the instance metadata, so no Region or keys are set on the servers. See [Running on AWS](../README.md#running-on-aws).
-- Until the database stack has written `/work/stock-research/db-host`, the page shows a "Missing parameters" error. Refreshing after stack 04 finishes connects, with no reboot.
+- The service runs `src/app.py` without `--local`, so the app uses RDS and S3 and reads its settings from SSM Parameter Store with the instance role. `use_instance_region` in `src/storage/parameters.py` reads the Region from the instance metadata, because boto3 does not, so no Region or keys are set on the servers. See [Running on AWS](../README.md#running-on-aws).
+- Until the database stack has written its parameters (`bucket-name`, `db-host`, `db-username`), the page shows a "Missing parameters" error. Refreshing after stack 04 finishes connects, with no reboot.
 - The repository is cloned only once. Rebooting does not pull newer code, so push to GitHub before creating this stack.
 
 ### Tags

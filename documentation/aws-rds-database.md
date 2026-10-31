@@ -32,9 +32,9 @@ Deploy this stack after [scripts/03-stock-research-dashboard-vpc.yaml](../script
 | `PrivateSubnet1Id` | `stock-research-dashboard-subnet-private1-us-east-1a` (`10.0.1.0/24`) |
 | `PrivateSubnet2Id` | `stock-research-dashboard-subnet-private2-us-east-1b` (`10.0.3.0/24`) |
 | `WebSecurityGroupId` | `Web Security Group` |
-| `DBHostParameterName` | Leave the default `/work/stock-research/db-host` |
+| `ParameterPrefix` | Leave the default `/work/stock-research` |
 
-Inside the stack, the DB instance references the DB subnet group and the DB security group, so CloudFormation creates both of them first and the instance next. The host name parameter references the instance, so it is created last.
+Inside the stack, the DB instance references the DB subnet group and the DB security group, so CloudFormation creates both of them first and the instance next. The host name parameter references the instance, so it is created after it.
 
 ## Sandbox restrictions
 
@@ -59,7 +59,7 @@ The sandbox limits RDS to Aurora, MySQL, PostgreSQL and MariaDB; nano, micro, sm
 | Credentials management | Self managed |
 | Database authentication | Password authentication |
 
-These are test credentials for the sandbox only, so they are documented here and set as parameter defaults. The dashboard reads the same username and password from `/work/stock-research/db-username` and `/work/stock-research/db-password` in Parameter Store (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)), so the two must match.
+These are test credentials for the sandbox only, so they are documented here and set as parameter defaults. The dashboard reads the username from `/work/stock-research/db-username`, which this stack writes from `DBMasterUsername`, and the password from `/work/stock-research/db-password`, which is created by hand because CloudFormation cannot create SecureStrings (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)). That password must equal `DBMasterPassword`.
 
 ## Instance class
 
@@ -117,8 +117,8 @@ The web servers find and log in to the database through Parameter Store:
 
 | Setting | Source |
 |---|---|
-| Host | `/work/stock-research/db-host`, written by this stack (see [Host name parameter](#host-name-parameter)) |
-| Username, password | `/work/stock-research/db-username` and `/work/stock-research/db-password`, created by hand |
+| Host, username | `/work/stock-research/db-host` and `/work/stock-research/db-username`, written by this stack (see [Parameters for the dashboard](#parameters-for-the-dashboard)) |
+| Password | `/work/stock-research/db-password`, created by hand |
 | Port, database name | `5432` and `stockresearch`, constants in `src/dashboard/config.py` |
 
 - `postgres_url` in `src/storage/database.py` builds the SQLAlchemy URL `postgresql+psycopg://...?sslmode=require`. `psycopg` is the PostgreSQL driver in `requirements.txt`. RDS for PostgreSQL 18 rejects unencrypted connections by default (`rds.force_ssl = 1`), so SSL is required explicitly.
@@ -126,12 +126,20 @@ The web servers find and log in to the database through Parameter Store:
 - The tables are created by the dashboard on its first start (`metadata.create_all`), and existing tables are left alone. The schema is described in [database-tables.md](database-tables.md).
 - Only the Web Security Group can reach port 5432, so the database cannot be opened from a laptop or CloudShell outside the VPC.
 
-### Host name parameter
+### Parameters for the dashboard
 
-The endpoint address (for example `stock-research-db.abcdefghijkl.us-east-1.rds.amazonaws.com`) contains an ID that RDS assigns when the instance is created, so it cannot be set in Parameter Store beforehand. The `DBHostParameter` resource (`AWS::SSM::Parameter`, type String) writes `StockResearchDB.Endpoint.Address` to the name in the `DBHostParameterName` parameter, which defaults to `/work/stock-research/db-host`. CloudFormation can only create String parameters, not SecureStrings, which is fine because a host name is not secret.
+The stack writes the dashboard's non-secret settings to Parameter Store (`AWS::SSM::Parameter`, type String), under the `ParameterPrefix` parameter (default `/work/stock-research`, the same as `SSM_PREFIX` in `src/dashboard/config.py`):
 
-- Do not create `/work/stock-research/db-host` by hand, or the stack fails with "already exists".
-- Deleting the stack deletes the parameter. The web servers then show a "Missing parameters" error until the stack is created again.
+| Resource | Parameter | Value |
+|---|---|---|
+| `BucketNameParameter` | `<prefix>/bucket-name` | `stock-research-bucket-${AWS::AccountId}-${AWS::Region}`, built the same way as in [01-stock-research-s3-bucket.yaml](../scripts/01-stock-research-s3-bucket.yaml) |
+| `DBHostParameter` | `<prefix>/db-host` | `StockResearchDB.Endpoint.Address`. The endpoint (for example `stock-research-db.abcdefghijkl.us-east-1.rds.amazonaws.com`) contains an ID that RDS assigns when the instance is created, so it is written after the instance exists. |
+| `DBUsernameParameter` | `<prefix>/db-username` | The `DBMasterUsername` parameter |
+
+CloudFormation can only create String parameters, not SecureStrings, so `db-password` is still created by hand.
+
+- Do not create these three parameters by hand, or the stack fails with "already exists".
+- Deleting the stack deletes them. The web servers then show a "Missing parameters" error until the stack is created again.
 
 ## Additional configuration
 
@@ -171,4 +179,6 @@ The DB subnet group and DB Security Group carry only a `Name` tag, like the netw
 | `DBEndpointPort` | PostgreSQL port (`5432`). |
 | `DBName` | Initial database name (`stockresearch`). |
 | `DBSecurityGroupId` | ID of the DB Security Group. |
+| `BucketNameParameterName` | SSM parameter holding the bucket name (`/work/stock-research/bucket-name`). |
 | `DBHostParameterName` | SSM parameter holding the host name (`/work/stock-research/db-host`). |
+| `DBUsernameParameterName` | SSM parameter holding the username (`/work/stock-research/db-username`). |

@@ -16,7 +16,7 @@ from src.dashboard.performance import render_dashboard
 from src.dashboard.sidebar import render_analysis_form, render_saved_analyses, show_saved_analysis
 from src.storage.database import Database, postgres_url
 from src.storage.object_store import LocalObjectStore, S3ObjectStore
-from src.storage.parameters import ParameterStore
+from src.storage.parameters import ParameterStore, use_instance_region
 from src.storage.seed import append_credentials, save_to_parameters, seed_accounts
 from src.storage.storage import DocumentStore
 
@@ -36,6 +36,7 @@ def open_local_store() -> DocumentStore:
 
 def open_aws_store() -> DocumentStore:
     """Open RDS PostgreSQL and the S3 bucket named in Parameter Store, loading the Alpaca keys and writing seed passwords there too."""
+    use_instance_region()
     parameters = ParameterStore()
     parameters.export_to_environment(ALPACA_PARAMETERS) #news falls back to Yahoo when the keys are missing
     config = parameters.get_many([BUCKET_NAME_PARAMETER, DB_HOST_PARAMETER, DB_USERNAME_PARAMETER, DB_PASSWORD_PARAMETER])

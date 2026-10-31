@@ -1,8 +1,18 @@
 import logging
 import os
 import boto3
+from botocore.utils import InstanceMetadataRegionFetcher
 
 LOGGER = logging.getLogger(__name__)
+
+def use_instance_region() -> None:
+    """Make boto3 use the EC2 instance's Region, unless AWS_DEFAULT_REGION or ~/.aws/config already sets one."""
+    if boto3.Session().region_name:
+        return
+    region = InstanceMetadataRegionFetcher().retrieve_region() #boto3 does not read the Region from instance metadata itself
+    if region is None:
+        raise ValueError("No AWS Region found: set AWS_DEFAULT_REGION, or run on EC2 where the instance metadata provides it.")
+    boto3.setup_default_session(region_name=region)
 
 class ParameterStore:
     """

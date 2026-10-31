@@ -153,20 +153,20 @@ The dashboard pages are the same on AWS. Only the storage behind them changes, c
 
 - `S3ObjectStore` in `src/storage/object_store.py` has the same `put`, `get` and `delete` methods as `LocalObjectStore`. S3 errors are raised as `OSError`, so the sidebar shows them like local file errors.
 - `Database` connects to RDS through `postgres_url` in `src/storage/database.py`: the `psycopg` driver, SSL required, and `pool_pre_ping` so connections RDS has closed are replaced. The app creates the tables on first start.
-- `ParameterStore` in `src/storage/parameters.py` reads the settings below with the EC2 instance role. boto3 takes the Region and credentials from the instance, so no keys are stored on the servers.
+- `ParameterStore` in `src/storage/parameters.py` reads the settings below with the EC2 instance role, so no keys are stored on the servers. boto3 does not read the Region from the instance by itself, so `use_instance_region` looks it up in the instance metadata first (unless `AWS_DEFAULT_REGION` is set).
 
 | Parameter | Type | Created by | Used for |
 |---|---|---|---|
-| `/work/stock-research/bucket-name` | String | You, before deploying | S3 bucket for document files |
-| `/work/stock-research/db-username` | String | You, before deploying | RDS master username (`main`) |
 | `/work/stock-research/db-password` | SecureString | You, before deploying | RDS master password (must match stack 04's `DBMasterPassword`) |
+| `/work/stock-research/bucket-name` | String | Stack 04 | S3 bucket for document files |
 | `/work/stock-research/db-host` | String | Stack 04 | RDS endpoint, known only once the database exists |
+| `/work/stock-research/db-username` | String | Stack 04 | RDS master username (`main`) |
 | `/work/alpaca-api-key`, `/work/alpaca-secret-key` | SecureString | You, before deploying | Alpaca news. Missing keys fall back to Yahoo news. |
 | `/work/stock-research/seed/<username>` | SecureString | The app | Passwords of the [demo accounts](#demo-accounts-and-the-admin) |
 
-How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
+CloudFormation cannot create SecureString parameters, so only those are created by hand. How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
 
-**Deployment order:** create the parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written `db-host`, the page shows "Could not open storage: Missing parameters ...". A failed start is not cached, so refreshing the page after stack 04 finishes connects, with no reboot.
+**Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ...". A failed start is not cached, so refreshing the page after stack 04 finishes connects, with no reboot.
 
 **Deploying new code:** each web server clones this repository once, at first boot, and rebooting does not pull new code. Push the code to GitHub before creating stack 03. Stack 03 cannot be deleted while the database sits in its subnets, so picking up later code means deleting stack 04 (a final snapshot is kept) and then stack 03, and creating both again. The new database starts empty unless it is restored from that snapshot.
 

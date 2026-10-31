@@ -8,7 +8,7 @@ The dashboard stores the contents of every saved document in a single private S3
 
 ## How the dashboard uses it
 
-- The bucket name is read from the `/work/stock-research/bucket-name` parameter (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)). The name is fixed by the account ID and Region, so the parameter can be created before this stack.
+- The bucket name is read from the `/work/stock-research/bucket-name` parameter (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)). The database stack ([04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml)) writes that parameter, building the name the same way as this template.
 - `S3ObjectStore` in `src/storage/object_store.py` calls `PutObject`, `GetObject` and `DeleteObject` with the EC2 instance role.
 - Object keys follow `users/{owner_id}/{document_id}/{filename}`, which is why the role's policy only allows the `users/` prefix (see [aws-ec2-iam-role.md](aws-ec2-iam-role.md)).
 - Deleting a document in the dashboard adds a delete marker (see [Versioning](#versioning)), so the file can still be recovered for 30 days.

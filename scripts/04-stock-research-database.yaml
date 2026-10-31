@@ -3,8 +3,9 @@ Description: >-
   Stock research dashboard - Amazon RDS for PostgreSQL database for users and
   document metadata. Builds a DB subnet group over the two private subnets, a DB
   security group that only accepts PostgreSQL traffic from the Web Security Group,
-  a Single-AZ db.t3.micro instance (Dev/Test) with 20 GiB gp2 storage, and an SSM
-  String parameter holding the database host name for the web servers.
+  a Single-AZ db.t3.micro instance (Dev/Test) with 20 GiB gp2 storage, and the SSM
+  String parameters the web servers read at startup (bucket name, database host
+  and username).
   Deploy after 03-stock-research-dashboard-vpc.yaml. Region: us-east-1.
 
 # ---------------------------------------------------------------------------
@@ -48,12 +49,14 @@ Parameters:
     MinLength: 8
     AllowedPattern: "[^/'\"@]*"
     Description: Master password (at least 8 characters, none of / ' " @). Test account only.
-  DBHostParameterName:
+  ParameterPrefix:
     Type: String
-    Default: /work/stock-research/db-host
+    Default: /work/stock-research
+    AllowedPattern: "/work/.*[^/]"
     Description: >-
-      SSM parameter this stack creates with the database host name, read by the web
-      servers at startup. Must start with /work/ (sandbox) and must not exist yet.
+      Path of the SSM parameters this stack creates (bucket-name, db-host, db-username),
+      matching SSM_PREFIX in src/dashboard/config.py. Must start with /work/ (sandbox),
+      and the parameters must not exist yet.
 
 Resources:
   # -------------------------------------------------------------------------
@@ -164,19 +167,34 @@ Resources:
           Value: !Ref ProjectName
 
   # -------------------------------------------------------------------------
-  # SSM PARAMETER - the database host name is only known once RDS creates the
-  # instance, so the stack stores it where the web servers read their settings
-  # (the other settings are created by hand before deployment).
-  # CloudFormation can only create String parameters, not SecureString, which
-  # is fine for a host name that is not secret.
+  # SSM PARAMETERS - the settings the web servers read at startup, so they do
+  # not have to be created by hand. CloudFormation can only create String
+  # parameters, not SecureString, so db-password is still created by hand.
+  # The host name is only known once RDS creates the instance.
   # -------------------------------------------------------------------------
+  BucketNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub ${ParameterPrefix}/bucket-name
+      Type: String
+      Value: !Sub stock-research-bucket-${AWS::AccountId}-${AWS::Region} #same name as 01-stock-research-s3-bucket.yaml
+      Description: Name of the S3 bucket holding document files, read by the web servers at startup.
+
   DBHostParameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Ref DBHostParameterName
+      Name: !Sub ${ParameterPrefix}/db-host
       Type: String
       Value: !GetAtt StockResearchDB.Endpoint.Address
       Description: Host name of stock-research-db, read by the web servers at startup.
+
+  DBUsernameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub ${ParameterPrefix}/db-username
+      Type: String
+      Value: !Ref DBMasterUsername
+      Description: Master username of stock-research-db, read by the web servers at startup.
 
 # ---------------------------------------------------------------------------
 # OUTPUTS - values the dashboard needs to connect
@@ -194,6 +212,12 @@ Outputs:
   DBSecurityGroupId:
     Description: ID of the DB Security Group.
     Value: !Ref DBSecurityGroup
+  BucketNameParameterName:
+    Description: SSM parameter holding the S3 bucket name.
+    Value: !Ref BucketNameParameter
   DBHostParameterName:
     Description: SSM parameter holding the database host name.
     Value: !Ref DBHostParameter
+  DBUsernameParameterName:
+    Description: SSM parameter holding the database username.
+    Value: !Ref DBUsernameParameter
