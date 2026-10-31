@@ -18,7 +18,7 @@ users 1 ──── * documents 1 ──── * document_tickers
 | `is_admin` | Boolean, required, defaults to false | Whether the user is an admin. An admin can see and delete every document, private or public. Sign-up always creates `false`; only the seed script (`src/storage/seed.py`) creates an admin. | `false` |
 | `created_at` | DateTime (timezone-aware), required | When the account was created, in UTC. | `2026-10-26 06:05:00+00:00` |
 
-**Seeded accounts:** when the dashboard starts with `--local`, `seed_accounts` creates any of `admin` (admin), `alice`, `bob` and `carol` that do not exist yet. Each gets a random password, appended to `local-data/seed-credentials.txt` (gitignored). Running it again creates nothing. On a database created before `is_admin` existed, `Database` adds the column on startup.
+**Seeded accounts:** when the dashboard starts, `seed_accounts` creates any of `admin` (admin), `alice`, `bob` and `carol` that do not exist yet. Each gets a random password. With `--local` it is appended to `local-data/seed-credentials.txt` (gitignored). On AWS it is saved as the SecureString `/work/stock-research/seed/<username>` in SSM Parameter Store. Running it again creates nothing. If two web servers create the same account at once, the unique `username` makes the second insert fail, and that server skips the account. On a database created before `is_admin` existed, `Database` adds the column on startup.
 
 # documents
 

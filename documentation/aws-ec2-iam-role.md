@@ -6,7 +6,7 @@
 
 ## Overview
 
-The web servers need AWS permissions for two things: reading the Alpaca API keys from SSM Parameter Store (see [aws-secrets-manager.md](aws-secrets-manager.md)), and saving, reading and deleting PDF notes in the S3 bucket (see [aws-s3-bucket.md](aws-s3-bucket.md)). An IAM role attached through an instance profile gives the instances short-lived credentials automatically, so no access keys or `secrets.env` file are stored on them.
+The web servers need AWS permissions for two things: reading the Alpaca API keys and the dashboard's settings from SSM Parameter Store, and writing the demo account passwords there (see [aws-secrets-manager.md](aws-secrets-manager.md)); and saving, reading and deleting documents in the S3 bucket (see [aws-s3-bucket.md](aws-s3-bucket.md)). The database needs no IAM permission, because the dashboard logs in with a password and the DB Security Group controls network access. An IAM role attached through an instance profile gives the instances short-lived credentials automatically, so no access keys or `secrets.env` file are stored on them.
 
 | Setting | Value |
 |---|---|
@@ -25,6 +25,11 @@ The template uses `AWS::IAM::RolePolicy`, which only needs `iam:PutRolePolicy` o
 | `ssm:*` | `arn:aws:ssm:*:*:parameter/work/*` |
 
 The Alpaca keys are stored as `SecureString` parameters under `/work/` (the only path the sandbox allows). They are encrypted with the AWS managed `aws/ssm` KMS key, whose key policy already lets any principal in the account decrypt through SSM, so no `kms:Decrypt` permission is needed.
+
+The same statement covers the dashboard's other parameters (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)):
+
+- `ssm:GetParameters` reads the bucket name and the database host, username and password.
+- `ssm:PutParameter` writes the demo accounts' generated passwords to `/work/stock-research/seed/<username>`. Encrypting with `aws/ssm` needs no extra KMS permission either.
 
 ### `notes-bucket-access`
 
@@ -63,6 +68,6 @@ Inline policies cannot be tagged, and the role is not owned by the stack, so thi
 | Area | Sandbox (now) | Production |
 |---|---|---|
 | Role | Existing `EC2InstanceRole`, shared with anything else that uses it | A dedicated role and instance profile created by the template, so the dashboard's permissions are not mixed with other workloads |
-| SSM actions | `ssm:*` on `/work/*` | `ssm:GetParameter` and `ssm:GetParameters` on the two Alpaca parameters only. The dashboard never needs to create, change or delete them. |
+| SSM actions | `ssm:*` on `/work/*` | `ssm:GetParameters` on the Alpaca and `/stock-research/` settings parameters, and `ssm:PutParameter` on `/stock-research/seed/*` only. The dashboard never needs to change or delete its settings. |
 | SSM resource | Any Region and account (`*:*`) | This account and Region only |
 | Secrets store | SSM Parameter Store | AWS Secrets Manager with `secretsmanager:GetSecretValue` on the Alpaca secret |

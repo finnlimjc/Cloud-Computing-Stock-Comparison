@@ -41,7 +41,7 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
 
    - Use `python -m` from the project root: modules import each other as `src.*`, which needs the project root on the import path.
    - `--local` stores accounts and saved documents on this computer (see [Storage](#storage)). Options for the app go after `--`; anything before it is for Streamlit.
-   - Without `--local`, the app expects AWS storage (RDS and S3). That is not implemented yet, so the app only shows an error.
+   - Without `--local`, the app uses AWS storage (RDS and S3) and reads its settings from SSM Parameter Store. This is how the EC2 web servers run it (see [Running on AWS](#running-on-aws)). On a computer without AWS credentials it only shows an error.
 
 ## Save and View Analyses
 
@@ -58,7 +58,12 @@ To add your own notes, open **Upload document**. Pick a Markdown (`.md`) or PDF 
 
 ### Demo accounts and the admin
 
-The first time the app starts with `--local`, it creates four accounts: `admin`, `alice`, `bob` and `carol`. Each gets a random password, which is appended to `local-data/seed-credentials.txt` (git-ignored, like the rest of `local-data/`). Open that file to find the passwords. Accounts that already exist are skipped, so restarting the app creates nothing new and never changes a password. The code is in `src/storage/seed.py`.
+The first time the app starts, it creates four accounts: `admin`, `alice`, `bob` and `carol`. Each gets a random password, saved where you can read it:
+
+- **Local (`--local`):** appended to `local-data/seed-credentials.txt` (git-ignored, like the rest of `local-data/`).
+- **AWS:** saved as an encrypted SecureString in SSM Parameter Store, named `/work/stock-research/seed/<username>`, because the web servers have no SSH access. Open **Systems Manager → Parameter Store → My parameters**, click the name and choose **Show decrypted value**, or run `aws ssm get-parameter --name /work/stock-research/seed/admin --with-decryption` in CloudShell.
+
+Accounts that already exist are skipped, so restarting the app creates nothing new and never changes a password. On AWS both web servers seed the same database. If both try to create an account at the same moment, the second one skips it, and the password saved is the one belonging to the account. The code is in `src/storage/seed.py`.
 
 `admin` is the only admin. An admin:
 
@@ -83,9 +88,9 @@ Saved documents are split between a **database** and an **object store**. The da
 |---|---|---|
 | Holds | Users, document metadata, and access rules | Document contents: Markdown reports and uploaded PDFs, later exported chart PDFs |
 | Local (`--local`) | SQLite file `local-data/app.db` | Folder `local-data/objects/` |
-| AWS (planned) | Amazon RDS for PostgreSQL in the VPC's private subnets | Private Amazon S3 bucket, reached through the VPC's S3 gateway endpoint |
+| AWS | Amazon RDS for PostgreSQL in the VPC's private subnets | Private Amazon S3 bucket, reached through the VPC's S3 gateway endpoint |
 
-`local-data/` is ignored by Git. Market data (prices, news, statements) is not stored: it is fetched again and cached in memory by `src/dashboard/loaders.py`. API keys stay in `secrets.env` locally, and in AWS Secrets Manager on AWS.
+`local-data/` is ignored by Git. Market data (prices, news, statements) is not stored: it is fetched again and cached in memory by `src/dashboard/loaders.py`. API keys stay in `secrets.env` locally, and in SSM Parameter Store on AWS (Secrets Manager in production).
 
 ### Database tables
 
@@ -142,13 +147,28 @@ example:    users/3/42/AAPL-vs-MSFT_overview_20261026-060500Z.md
 - The row and the file are saved in one database transaction that commits only after the file is written, so a failed save leaves neither behind. Deleting removes the row and the file together.
 - Object keys are checked so they cannot point outside the storage folder.
 
-### Moving to AWS
+### Running on AWS
 
-The AWS version needs no changes to the dashboard pages:
+The dashboard pages are the same on AWS. Only the storage behind them changes, chosen in `open_store` in `src/app.py`:
 
-- An `S3ObjectStore` with the same `put`, `get` and `delete` methods as `LocalObjectStore` in `src/storage/object_store.py`.
-- A PostgreSQL URL for RDS (endpoint from the database stack's outputs; credentials in Secrets Manager in production), passed to `Database`, plus a PostgreSQL driver in `requirements.txt`.
-- The backend choice in `open_store` in `src/app.py`.
+- `S3ObjectStore` in `src/storage/object_store.py` has the same `put`, `get` and `delete` methods as `LocalObjectStore`. S3 errors are raised as `OSError`, so the sidebar shows them like local file errors.
+- `Database` connects to RDS through `postgres_url` in `src/storage/database.py`: the `psycopg` driver, SSL required, and `pool_pre_ping` so connections RDS has closed are replaced. The app creates the tables on first start.
+- `ParameterStore` in `src/storage/parameters.py` reads the settings below with the EC2 instance role. boto3 takes the Region and credentials from the instance, so no keys are stored on the servers.
+
+| Parameter | Type | Created by | Used for |
+|---|---|---|---|
+| `/work/stock-research/bucket-name` | String | You, before deploying | S3 bucket for document files |
+| `/work/stock-research/db-username` | String | You, before deploying | RDS master username (`main`) |
+| `/work/stock-research/db-password` | SecureString | You, before deploying | RDS master password (must match stack 04's `DBMasterPassword`) |
+| `/work/stock-research/db-host` | String | Stack 04 | RDS endpoint, known only once the database exists |
+| `/work/alpaca-api-key`, `/work/alpaca-secret-key` | SecureString | You, before deploying | Alpaca news. Missing keys fall back to Yahoo news. |
+| `/work/stock-research/seed/<username>` | SecureString | The app | Passwords of the [demo accounts](#demo-accounts-and-the-admin) |
+
+How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
+
+**Deployment order:** create the parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written `db-host`, the page shows "Could not open storage: Missing parameters ...". A failed start is not cached, so refreshing the page after stack 04 finishes connects, with no reboot.
+
+**Deploying new code:** each web server clones this repository once, at first boot, and rebooting does not pull new code. Push the code to GitHub before creating stack 03. Stack 03 cannot be deleted while the database sits in its subnets, so picking up later code means deleting stack 04 (a final snapshot is kept) and then stack 03, and creating both again. The new database starts empty unless it is restored from that snapshot.
 
 ## Project structure
 
@@ -176,8 +196,9 @@ The AWS version needs no changes to the dashboard pages:
 │   │   └── recessions.py       # FRED recession periods with a known-date fallback
 │   ├── storage/                # Accounts and saved documents
 │   │   ├── auth.py             # Password hashing and username/password rules
-│   │   ├── database.py         # Users and document metadata tables (SQLAlchemy Core)
-│   │   ├── object_store.py     # File contents by object key (local folder; S3 later)
+│   │   ├── database.py         # Users and document metadata tables (SQLAlchemy Core; SQLite or PostgreSQL)
+│   │   ├── object_store.py     # File contents by object key (local folder or S3)
+│   │   ├── parameters.py       # Settings and secrets from SSM Parameter Store on AWS
 │   │   ├── seed.py             # Creates the demo admin and users on first start
 │   │   └── storage.py          # Markdown report builders and the DocumentStore
 │   └── analysis/               # Calculations on loaded data

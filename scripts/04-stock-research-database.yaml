@@ -3,7 +3,8 @@ Description: >-
   Stock research dashboard - Amazon RDS for PostgreSQL database for users and
   document metadata. Builds a DB subnet group over the two private subnets, a DB
   security group that only accepts PostgreSQL traffic from the Web Security Group,
-  and a Single-AZ db.t3.micro instance (Dev/Test) with 20 GiB gp2 storage.
+  a Single-AZ db.t3.micro instance (Dev/Test) with 20 GiB gp2 storage, and an SSM
+  String parameter holding the database host name for the web servers.
   Deploy after 03-stock-research-dashboard-vpc.yaml. Region: us-east-1.
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,12 @@ Parameters:
     MinLength: 8
     AllowedPattern: "[^/'\"@]*"
     Description: Master password (at least 8 characters, none of / ' " @). Test account only.
+  DBHostParameterName:
+    Type: String
+    Default: /work/stock-research/db-host
+    Description: >-
+      SSM parameter this stack creates with the database host name, read by the web
+      servers at startup. Must start with /work/ (sandbox) and must not exist yet.
 
 Resources:
   # -------------------------------------------------------------------------
@@ -156,6 +163,21 @@ Resources:
         - Key: CostCenter
           Value: !Ref ProjectName
 
+  # -------------------------------------------------------------------------
+  # SSM PARAMETER - the database host name is only known once RDS creates the
+  # instance, so the stack stores it where the web servers read their settings
+  # (the other settings are created by hand before deployment).
+  # CloudFormation can only create String parameters, not SecureString, which
+  # is fine for a host name that is not secret.
+  # -------------------------------------------------------------------------
+  DBHostParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Ref DBHostParameterName
+      Type: String
+      Value: !GetAtt StockResearchDB.Endpoint.Address
+      Description: Host name of stock-research-db, read by the web servers at startup.
+
 # ---------------------------------------------------------------------------
 # OUTPUTS - values the dashboard needs to connect
 # ---------------------------------------------------------------------------
@@ -172,3 +194,6 @@ Outputs:
   DBSecurityGroupId:
     Description: ID of the DB Security Group.
     Value: !Ref DBSecurityGroup
+  DBHostParameterName:
+    Description: SSM parameter holding the database host name.
+    Value: !Ref DBHostParameter

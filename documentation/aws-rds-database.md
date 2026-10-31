@@ -32,8 +32,9 @@ Deploy this stack after [scripts/03-stock-research-dashboard-vpc.yaml](../script
 | `PrivateSubnet1Id` | `stock-research-dashboard-subnet-private1-us-east-1a` (`10.0.1.0/24`) |
 | `PrivateSubnet2Id` | `stock-research-dashboard-subnet-private2-us-east-1b` (`10.0.3.0/24`) |
 | `WebSecurityGroupId` | `Web Security Group` |
+| `DBHostParameterName` | Leave the default `/work/stock-research/db-host` |
 
-Inside the stack, the DB instance references the DB subnet group and the DB security group, so CloudFormation creates both of them first and the instance last.
+Inside the stack, the DB instance references the DB subnet group and the DB security group, so CloudFormation creates both of them first and the instance next. The host name parameter references the instance, so it is created last.
 
 ## Sandbox restrictions
 
@@ -58,7 +59,7 @@ The sandbox limits RDS to Aurora, MySQL, PostgreSQL and MariaDB; nano, micro, sm
 | Credentials management | Self managed |
 | Database authentication | Password authentication |
 
-These are test credentials for the sandbox only, so they are documented here and set as parameter defaults.
+These are test credentials for the sandbox only, so they are documented here and set as parameter defaults. The dashboard reads the same username and password from `/work/stock-research/db-username` and `/work/stock-research/db-password` in Parameter Store (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)), so the two must match.
 
 ## Instance class
 
@@ -110,6 +111,28 @@ Only the private subnets are used, so the database has no route to or from the i
 
 The source is the Web Security Group itself, not an IP range. Any instance in that group (both web servers, and any future ones) can connect, the rule keeps working when their IPs change, and nothing else can reach the database.
 
+## Connecting from the dashboard
+
+The web servers find and log in to the database through Parameter Store:
+
+| Setting | Source |
+|---|---|
+| Host | `/work/stock-research/db-host`, written by this stack (see [Host name parameter](#host-name-parameter)) |
+| Username, password | `/work/stock-research/db-username` and `/work/stock-research/db-password`, created by hand |
+| Port, database name | `5432` and `stockresearch`, constants in `src/dashboard/config.py` |
+
+- `postgres_url` in `src/storage/database.py` builds the SQLAlchemy URL `postgresql+psycopg://...?sslmode=require`. `psycopg` is the PostgreSQL driver in `requirements.txt`. RDS for PostgreSQL 18 rejects unencrypted connections by default (`rds.force_ssl = 1`), so SSL is required explicitly.
+- The engine uses `pool_pre_ping`, so a connection that RDS has closed while the dashboard sat idle is replaced instead of failing the next query.
+- The tables are created by the dashboard on its first start (`metadata.create_all`), and existing tables are left alone. The schema is described in [database-tables.md](database-tables.md).
+- Only the Web Security Group can reach port 5432, so the database cannot be opened from a laptop or CloudShell outside the VPC.
+
+### Host name parameter
+
+The endpoint address (for example `stock-research-db.abcdefghijkl.us-east-1.rds.amazonaws.com`) contains an ID that RDS assigns when the instance is created, so it cannot be set in Parameter Store beforehand. The `DBHostParameter` resource (`AWS::SSM::Parameter`, type String) writes `StockResearchDB.Endpoint.Address` to the name in the `DBHostParameterName` parameter, which defaults to `/work/stock-research/db-host`. CloudFormation can only create String parameters, not SecureStrings, which is fine because a host name is not secret.
+
+- Do not create `/work/stock-research/db-host` by hand, or the stack fails with "already exists".
+- Deleting the stack deletes the parameter. The web servers then show a "Missing parameters" error until the stack is created again.
+
 ## Additional configuration
 
 | Setting | Value |
@@ -148,3 +171,4 @@ The DB subnet group and DB Security Group carry only a `Name` tag, like the netw
 | `DBEndpointPort` | PostgreSQL port (`5432`). |
 | `DBName` | Initial database name (`stockresearch`). |
 | `DBSecurityGroupId` | ID of the DB Security Group. |
+| `DBHostParameterName` | SSM parameter holding the host name (`/work/stock-research/db-host`). |
