@@ -106,8 +106,9 @@ The stacks are deployed in `us-east-1` with CloudFormation. The web servers get 
    |---|---|---|
    | 01 | [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml) | Private S3 bucket for document files. |
    | 02 | [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml) | Adds the SSM and S3 policies to the existing `EC2InstanceRole`. |
-   | 03 | [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml) | VPC and the two web servers, using the `Work-Role` instance profile. |
+   | 03 | [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml) | VPC, one NAT Gateway per AZ, and the two web servers, using the `Work-Role` instance profile. |
    | 04 | [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml) | RDS database and the String parameters. Pick stack 03's VPC, the two private subnets (`...-subnet-private1-us-east-1a` and `...-subnet-private2-us-east-1b`) and `Web Security Group`. |
+   | 05 | [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml) | Load balancer and Auto Scaling group (2 to 6 instances in the private subnets). Pick stack 03's VPC, the two public and two private subnets, `Web Security Group`, and `Web Server 1` / `Web Server 2`. |
 
 4. **Open the app.** Allow a few minutes after stack 03 finishes for the servers to install and start, then open `WebServer1URL` or `WebServer2URL` from stack 03's **Outputs** tab (`http://<public-dns>:8501`). Until stack 04 finishes, the page shows "Could not open storage: Missing parameters ...". Refresh once it is done.
 
@@ -241,7 +242,7 @@ The dashboard pages are the same on AWS. Only the storage behind them changes, c
 
 CloudFormation cannot create SecureString parameters, so only those are created by hand. How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
 
-**Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ...".
+**Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04` → `05`. The web servers may start before the database exists. Until stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ...".
 
 ## Project structure
 
@@ -302,3 +303,4 @@ The dashboard is designed to run in its own VPC on AWS. These documents describe
 - [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys and storage settings from SSM, write the demo account passwords there, and manage documents in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
 - [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
 - [AWS RDS database](documentation/aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).
+- [AWS load balancer and Auto Scaling](documentation/aws-load-balancer-auto-scaling.md): internet-facing Application Load Balancer with a sticky target group on port 8501, and an Auto Scaling group of 2 to 6 instances in the private subnets that tracks 60% average CPU. Built from [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml).

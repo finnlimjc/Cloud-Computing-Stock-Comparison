@@ -31,9 +31,9 @@ The template uses `!GetAZs` and `${AWS::Region}`, so moving to Singapore needs n
 | Subnet | Name tag | AZ | CIDR | Route table |
 |---|---|---|---|---|
 | Public 1 | `stock-research-dashboard-subnet-public1-us-east-1a` | us-east-1a | `10.0.0.0/24` | Public |
-| Private 1 | `stock-research-dashboard-subnet-private1-us-east-1a` | us-east-1a | `10.0.1.0/24` | Private |
+| Private 1 | `stock-research-dashboard-subnet-private1-us-east-1a` | us-east-1a | `10.0.1.0/24` | Private 1 |
 | Public 2 | `stock-research-dashboard-subnet-public2-us-east-1b` | us-east-1b | `10.0.2.0/24` | Public |
-| Private 2 | `stock-research-dashboard-subnet-private2-us-east-1b` | us-east-1b | `10.0.3.0/24` | Private |
+| Private 2 | `stock-research-dashboard-subnet-private2-us-east-1b` | us-east-1b | `10.0.3.0/24` | Private 2 |
 
 A subnet is "public" or "private" because of its route table, not the subnet itself. Public subnets also auto-assign a public IPv4 address to instances on launch.
 
@@ -42,7 +42,9 @@ A subnet is "public" or "private" because of its route table, not the subnet its
 | Resource | Name tag | Purpose |
 |---|---|---|
 | Internet Gateway | `stock-research-dashboard-igw` | Connects the VPC to the internet. Used by the public route table. |
-| S3 Gateway Endpoint | `stock-research-dashboard-vpce-s3` | Private route to S3 for the PDF notes users upload. Traffic stays on the AWS network and the endpoint itself is free. Attached to both route tables. |
+| NAT Gateway 1 | `stock-research-dashboard-nat-public1-us-east-1a` | Sits in Public 1 with an Elastic IP (`stock-research-dashboard-eip-us-east-1a`). Lets instances in Private 1 open outbound connections without being reachable from the internet. Used by the Private 1 route table. |
+| NAT Gateway 2 | `stock-research-dashboard-nat-public2-us-east-1b` | Same for Private 2: sits in Public 2 with its own Elastic IP (`stock-research-dashboard-eip-us-east-1b`). Used by the Private 2 route table. |
+| S3 Gateway Endpoint | `stock-research-dashboard-vpce-s3` | Private route to S3 for the PDF notes users upload. Traffic stays on the AWS network and the endpoint itself is free. Attached to all three route tables. |
 
 ### Route tables
 
@@ -51,12 +53,20 @@ A subnet is "public" or "private" because of its route table, not the subnet its
 | `stock-research-dashboard-rtb-public` | `10.0.0.0/16` | local | Public 1, Public 2 |
 | | `0.0.0.0/0` | Internet Gateway | |
 | | S3 prefix list | S3 Gateway Endpoint | |
-| `stock-research-dashboard-rtb-private` | `10.0.0.0/16` | local | Private 1, Private 2 |
+| `stock-research-dashboard-rtb-private1-us-east-1a` | `10.0.0.0/16` | local | Private 1 |
+| | `0.0.0.0/0` | NAT Gateway 1 | |
+| | S3 prefix list | S3 Gateway Endpoint | |
+| `stock-research-dashboard-rtb-private2-us-east-1b` | `10.0.0.0/16` | local | Private 2 |
+| | `0.0.0.0/0` | NAT Gateway 2 | |
 | | S3 prefix list | S3 Gateway Endpoint | |
 
-### No NAT Gateway
+### NAT Gateways
 
-A NAT Gateway is intentionally not deployed. Both web servers sit in public subnets with public IPs, so they reach the internet (`git clone`, `pip`, market-data APIs) through the Internet Gateway. The private subnets hold only the RDS database and have no internet route, which keeps it unreachable from outside. This also avoids the NAT Gateway's hourly and per-GB charges.
+The Auto Scaling instances behind the load balancer ([scripts/05-stock-research-load-balancer.yaml](../scripts/05-stock-research-load-balancer.yaml)) run in the private subnets. Users reach them through the load balancer, but the instances also open their own connections: `git clone` and `pip` at first boot, then the market-data APIs and SSM Parameter Store. The load balancer only forwards incoming requests, so those outbound connections go through a NAT Gateway instead.
+
+- A NAT Gateway only allows connections started from inside, so the private instances and the RDS database stay unreachable from the internet.
+- There is one NAT Gateway per AZ, and each private subnet has its own route table pointing at the NAT Gateway in its AZ. If one AZ fails, the instances in the other AZ keep their outbound access, matching the two-AZ Auto Scaling group. Traffic also stays within its AZ, so there are no cross-AZ data charges. The cost is two sets of hourly and per-GB NAT charges.
+- Web Server 1 and 2 are in public subnets and still use the Internet Gateway directly.
 
 ## Security
 
@@ -70,8 +80,8 @@ A NAT Gateway is intentionally not deployed. Both web servers sit in public subn
 
 - **No SSH (port 22) rule.** Users sign in through the dashboard by opening the public address, and nobody needs shell access to the servers.
 - **HTTP is open to Anywhere-IPv4 in the sandbox** because the school's IP ranges are unknown. "My IP" would lock out students whose IP differs from the author's.
-- **Production:** restrict ports 80/8501 to the company's IP ranges (or place the servers behind a load balancer and allow only that).
-- Port 8501 is where Streamlit actually listens. Nothing listens on port 80 today; the rule is kept for a future reverse proxy or load balancer.
+- **Production:** restrict ports 80/8501 to the company's IP ranges, and give the load balancer its own security group so the instances accept 8501 only from it.
+- Port 8501 is where Streamlit listens. Port 80 is used by the load balancer's listener, which shares this security group (see [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md)).
 
 ### DB Security Group
 
@@ -120,4 +130,4 @@ Both instances carry the same tags; only `Name` differs.
 |---|---|---|
 | Region | `us-east-1` | `ap-southeast-1` |
 | HTTP / Streamlit source | Anywhere-IPv4 | Company IP ranges only |
-| Instance entry point | Two public IPs | Load balancer in front of both instances |
+| Instance entry point | Load balancer, plus the two web servers' public IPs | Load balancer only |

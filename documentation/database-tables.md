@@ -5,6 +5,7 @@ The database stores users and the metadata of their saved documents. The file co
 ```
 users 1 ──── * documents 1 ──── * document_tickers
 ```
+![alt text](../assets/database.png)
 
 # users
 

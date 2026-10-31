@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Stock research dashboard - VPC networking. Builds a VPC with 2 public and 2 private
-  subnets across 2 Availability Zones, an Internet Gateway, an S3
-  gateway endpoint, route tables, a web security group, and one EC2 web server per
+  subnets across 2 Availability Zones, an Internet Gateway, one NAT Gateway per
+  Availability Zone for the private subnets' outbound traffic, an S3 gateway endpoint, route tables, a web security group, and one EC2 web server per
   public subnet that runs the Streamlit dashboard.
   Region: us-east-1. NOTE: the web app needs a few minutes after the stack finishes (user data still running).
 
@@ -121,7 +121,8 @@ Resources:
   # -------------------------------------------------------------------------
   # ROUTE TABLES - rules that say where network traffic goes.
   # Public route table: internet traffic (0.0.0.0/0) -> Internet Gateway.
-  # Private route table: local VPC traffic only (no internet route).
+  # Private route tables: one per AZ, outbound internet traffic (0.0.0.0/0) ->
+  # the NAT Gateway in the same AZ.
   # Each subnet must be associated with a route table.
   # -------------------------------------------------------------------------
   PublicRouteTable:
@@ -152,25 +153,91 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
 
-  PrivateRouteTable:
+  PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref LabVpc
       Tags:
         - Key: Name
-          Value: stock-research-dashboard-rtb-private
+          Value: stock-research-dashboard-rtb-private1-us-east-1a
+
+  PrivateDefaultRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
 
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVpc
+      Tags:
+        - Key: Name
+          Value: stock-research-dashboard-rtb-private2-us-east-1b
+
+  PrivateDefaultRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable2
+
+  # -------------------------------------------------------------------------
+  # NAT GATEWAYS - let the Auto Scaling instances in the private subnets start
+  # outbound connections (git clone, pip, market-data APIs, SSM) while staying
+  # unreachable from the internet. Inbound user traffic goes through the load
+  # balancer instead (05-stock-research-load-balancer.yaml).
+  # One per AZ, each in that AZ's public subnet: if one AZ fails, the private
+  # subnet in the other AZ keeps its outbound access.
+  # -------------------------------------------------------------------------
+  NatGatewayEip1:
+    Type: AWS::EC2::EIP
+    DependsOn: LabInternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: stock-research-dashboard-eip-us-east-1a
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !GetAtt NatGatewayEip1.AllocationId
+      Tags:
+        - Key: Name
+          Value: stock-research-dashboard-nat-public1-us-east-1a
+
+  NatGatewayEip2:
+    Type: AWS::EC2::EIP
+    DependsOn: LabInternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: stock-research-dashboard-eip-us-east-1b
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      AllocationId: !GetAtt NatGatewayEip2.AllocationId
+      Tags:
+        - Key: Name
+          Value: stock-research-dashboard-nat-public2-us-east-1b
 
   # -------------------------------------------------------------------------
   # S3 GATEWAY ENDPOINT - private path to S3 for PDF note uploads. Free, and
@@ -184,7 +251,8 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PublicRouteTable
-        - !Ref PrivateRouteTable
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
       Tags:
         - Key: Name
           Value: stock-research-dashboard-vpce-s3

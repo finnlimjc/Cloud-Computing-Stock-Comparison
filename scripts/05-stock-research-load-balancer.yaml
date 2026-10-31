@@ -1,0 +1,283 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Stock research dashboard - Application Load Balancer and Auto Scaling. Builds an
+  internet-facing ALB in the two public subnets with an HTTP:80 listener, a sticky
+  target group on Streamlit's port 8501, a launch template, and an Auto Scaling group
+  of 2 to 6 web servers in the two private subnets that tracks 60% average CPU.
+  Deploy after 03-stock-research-dashboard-vpc.yaml (its NAT Gateway gives the private
+  instances outbound access) and 04-stock-research-database.yaml. Region: us-east-1.
+  NOTE: new instances need a few minutes before they pass health checks (user data still running).
+
+# ---------------------------------------------------------------------------
+# PARAMETERS - values you can choose when creating the stack
+# ---------------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: stock-research-dashboard
+    Description: Value of the Project and CostCenter tags on the load balancer and instances.
+  Environment:
+    Type: String
+    Default: Prod
+    AllowedValues: [Dev, Test, Prod]
+    Description: Value of the Environment tag on the load balancer and instances.
+  Team:
+    Type: String
+    Default: DevOps
+    Description: Value of the Team tag on the load balancer and instances (team responsible).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: stock-research-dashboard-vpc from 03-stock-research-dashboard-vpc.yaml.
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-public1-us-east-1a (10.0.0.0/24), for the load balancer.
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-public2-us-east-1b (10.0.2.0/24), for the load balancer.
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-private1-us-east-1a (10.0.1.0/24), for the Auto Scaling instances.
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: stock-research-dashboard-subnet-private2-us-east-1b (10.0.3.0/24), for the Auto Scaling instances.
+  WebSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Web Security Group, used by the load balancer and the instances (and allowed into the database).
+  WebServer1Id:
+    Type: AWS::EC2::Instance::Id
+    Description: Web Server 1 from 03-stock-research-dashboard-vpc.yaml, registered in the target group.
+  WebServer2Id:
+    Type: AWS::EC2::Instance::Id
+    Description: Web Server 2 from 03-stock-research-dashboard-vpc.yaml, registered in the target group.
+  InstanceProfileName:
+    Type: String
+    Default: Work-Role
+    Description: >-
+      Instance profile of the existing role EC2InstanceRole (see
+      03-stock-research-dashboard-vpc.yaml). Without it the instances cannot read
+      their settings from SSM or reach the notes bucket.
+
+Resources:
+  # -------------------------------------------------------------------------
+  # TARGET GROUP - where the load balancer sends requests: Streamlit on 8501.
+  # Health check on "/" returns 200 once the Streamlit service is up.
+  # Stickiness is required: Streamlit keeps each session (login, cached
+  # analysis) in the memory of one server, and file uploads
+  # (/_stcore/upload_file) and downloads (/media) are separate HTTP requests
+  # that must reach the server holding that session.
+  # -------------------------------------------------------------------------
+  StockResearchTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: StockResearchGroup
+      TargetType: instance
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Port: 8501
+      IpAddressType: ipv4
+      VpcId: !Ref VpcId
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      Targets:
+        - Id: !Ref WebServer1Id
+          Port: 8501
+        - Id: !Ref WebServer2Id
+          Port: 8501
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: "true"
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: "86400" #1 day
+      Tags:
+        - Key: Name
+          Value: StockResearchGroup
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Team
+          Value: !Ref Team
+        - Key: CostCenter
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------------------------------
+  # APPLICATION LOAD BALANCER - the single public entry point. Internet-facing
+  # in both public subnets (one node per AZ). Cross-zone load balancing is
+  # always on for an ALB, so the target group inherits it.
+  # -------------------------------------------------------------------------
+  StockResearchLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: StockResearchELB
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets:
+        - !Ref PublicSubnet1Id
+        - !Ref PublicSubnet2Id
+      SecurityGroups:
+        - !Ref WebSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: StockResearchELB
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Team
+          Value: !Ref Team
+        - Key: CostCenter
+          Value: !Ref ProjectName
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref StockResearchLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref StockResearchTargetGroup
+                Weight: 1
+
+  # -------------------------------------------------------------------------
+  # LAUNCH TEMPLATE - the settings of every instance Auto Scaling launches.
+  # The sandbox only allows Amazon-provided AMIs, so instead of an AMI made from
+  # Web Server 1, each instance starts from Amazon Linux 2023 and installs the
+  # app with the same user data as Web Server 1. No subnet: Auto Scaling picks it.
+  # Detailed monitoring sends CPU metrics every minute, so scaling reacts faster.
+  # -------------------------------------------------------------------------
+  StockResearchLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: StockResearchConfig
+      LaunchTemplateData:
+        ImageId: ami-0fef201115eefe936
+        InstanceType: t2.micro
+        IamInstanceProfile:
+          Name: !Ref InstanceProfileName
+        SecurityGroupIds:
+          - !Ref WebSecurityGroupId
+        Monitoring:
+          Enabled: true
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -ex
+            exec > >(tee /var/log/user-data.log) 2>&1
+            # Install Git and Python 3.11 (Amazon Linux 2023's default python3 is 3.9;
+            # 3.11 is a separate package and the venv module ships with it)
+            dnf install -y git python3.11 python3.11-pip
+            python3.11 -m ensurepip --upgrade || true
+            # Clone the app
+            git clone https://github.com/finnlimjc/Cloud-Computing-Stock-Comparison.git /opt/app
+            cd /opt/app
+            # Create the virtual environment and install dependencies inside it
+            python3.11 -m venv .venv
+            . .venv/bin/activate
+            pip install --upgrade pip
+            pip install --no-cache-dir -r requirements.txt
+            deactivate
+            # Run Streamlit on 0.0.0.0:8501 as a systemd service (restarts on reboot/crash)
+            cat > /etc/systemd/system/streamlit.service <<'EOF'
+            [Unit]
+            Description=Streamlit app
+            After=network-online.target
+            Wants=network-online.target
+
+            [Service]
+            WorkingDirectory=/opt/app
+            ExecStart=/opt/app/.venv/bin/python -m streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+            Restart=always
+            Environment=HOME=/root
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            systemctl daemon-reload
+            systemctl enable --now streamlit
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: Name
+              Value: StockResearchConfig
+            - Key: Project
+              Value: !Ref ProjectName
+            - Key: Environment
+              Value: !Ref Environment
+            - Key: Team
+              Value: !Ref Team
+            - Key: CostCenter
+              Value: !Ref ProjectName
+
+  # -------------------------------------------------------------------------
+  # AUTO SCALING GROUP - keeps 2 to 6 instances across both private subnets
+  # and registers each one in the target group. Group metrics are sent to
+  # CloudWatch every minute. Tags with PropagateAtLaunch are copied onto every
+  # instance it launches.
+  # -------------------------------------------------------------------------
+  StockResearchAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: StockResearchAutoScalingGroup
+      LaunchTemplate:
+        LaunchTemplateId: !Ref StockResearchLaunchTemplate
+        Version: !GetAtt StockResearchLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      TargetGroupARNs:
+        - !Ref StockResearchTargetGroup
+      MinSize: "2"
+      MaxSize: "6"
+      DesiredCapacity: "2"
+      MetricsCollection:
+        - Granularity: 1Minute
+      Tags:
+        - Key: Name
+          Value: Stock Research Instance
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: !Ref ProjectName
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: !Ref Environment
+          PropagateAtLaunch: true
+        - Key: Team
+          Value: !Ref Team
+          PropagateAtLaunch: true
+        - Key: CostCenter
+          Value: !Ref ProjectName
+          PropagateAtLaunch: true
+
+  # -------------------------------------------------------------------------
+  # SCALING POLICY - target tracking: Auto Scaling adds or removes instances
+  # to keep the group's average CPU utilization at about 60%.
+  # -------------------------------------------------------------------------
+  StockResearchScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref StockResearchAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60
+
+# ---------------------------------------------------------------------------
+# OUTPUTS - handy values shown on the stack's Outputs tab
+# ---------------------------------------------------------------------------
+Outputs:
+  LoadBalancerURL:
+    Description: Open this URL in a browser to reach the dashboard through the load balancer (allow a few minutes for new instances)
+    Value: !Sub "http://${StockResearchLoadBalancer.DNSName}"
+  TargetGroupArn:
+    Description: ARN of StockResearchGroup.
+    Value: !Ref StockResearchTargetGroup
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling group.
+    Value: !Ref StockResearchAutoScalingGroup
