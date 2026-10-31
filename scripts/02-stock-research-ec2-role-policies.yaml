@@ -4,8 +4,9 @@ Description: >-
   Lets the web servers read the Alpaca keys from SSM Parameter Store (/work/*) and
   read/write/delete the PDF notes in the S3 bucket from 01-stock-research-s3-bucket.yaml.
   The sandbox does not allow creating roles, so this stack only adds policies to the
-  existing role. Attach the role to the web servers by updating the VPC stack with
-  InstanceProfileName set to Work-Role (EC2InstanceRole's instance profile).
+  existing role. The Auto Scaling instances get the role through the launch template in
+  05-stock-research-load-balancer.yaml, whose InstanceProfileName is Work-Role
+  (EC2InstanceRole's instance profile).
 
 # ---------------------------------------------------------------------------
 # PARAMETERS - values you can choose when creating the stack

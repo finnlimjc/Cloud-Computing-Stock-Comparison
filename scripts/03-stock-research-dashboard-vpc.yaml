@@ -2,46 +2,15 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Stock research dashboard - VPC networking. Builds a VPC with 2 public and 2 private
   subnets across 2 Availability Zones, an Internet Gateway, one NAT Gateway per
-  Availability Zone for the private subnets' outbound traffic, an S3 gateway endpoint, route tables, a web security group, and one EC2 web server per
-  public subnet that runs the Streamlit dashboard.
-  Region: us-east-1. NOTE: the web app needs a few minutes after the stack finishes (user data still running).
-
-# ---------------------------------------------------------------------------
-# PARAMETERS - values you can choose when creating the stack
-# ---------------------------------------------------------------------------
-Parameters:
-  ProjectName:
-    Type: String
-    Default: stock-research-dashboard
-    Description: Value of the Project and CostCenter tags on the web servers.
-  Environment:
-    Type: String
-    Default: Prod
-    AllowedValues: [Dev, Test, Prod]
-    Description: Value of the Environment tag on the web servers.
-  Team:
-    Type: String
-    Default: DevOps
-    Description: Value of the Team tag on the web servers (team responsible).
-  InstanceProfileName:
-    Type: String
-    Default: Work-Role
-    Description: >-
-      Instance profile of the existing role EC2InstanceRole (the profile is named
-      Work-Role, not the role name), whose policies are added
-      by 02-stock-research-ec2-role-policies.yaml. Gives the web servers access to the
-      Alpaca keys in SSM and the notes bucket. Leave empty to launch without a role.
-
-# ---------------------------------------------------------------------------
-# CONDITIONS - only attach an instance profile if one was provided
-# ---------------------------------------------------------------------------
-Conditions:
-  HasInstanceProfile: !Not [!Equals [!Ref InstanceProfileName, ""]]
+  Availability Zone for the private subnets' outbound traffic, an S3 gateway endpoint,
+  route tables, and the Web Security Group. The load balancer and the Auto Scaling
+  instances that run the dashboard are in 05-stock-research-load-balancer.yaml.
+  Region: us-east-1.
 
 Resources:
   # -------------------------------------------------------------------------
   # TASK 1: VPC - our own private virtual network (10.0.0.0/16 = 65,536 IPs).
-  # DNS hostnames must be enabled so the instance gets a public DNS name.
+  # DNS hostnames must be enabled so instances get DNS names.
   # -------------------------------------------------------------------------
   LabVpc:
     Type: AWS::EC2::VPC
@@ -258,9 +227,9 @@ Resources:
           Value: stock-research-dashboard-vpce-s3
 
   # -------------------------------------------------------------------------
-  # TASK 3: SECURITY GROUP - a virtual firewall for the instance.
-  # Allows inbound HTTP (port 80) from anywhere on IPv4. Outbound traffic is
-  # allowed by default.
+  # TASK 3: SECURITY GROUP - a virtual firewall shared by the load balancer
+  # (HTTP 80) and the Auto Scaling instances (Streamlit 8501). Inbound from
+  # anywhere on IPv4. Outbound traffic is allowed by default.
   # -------------------------------------------------------------------------
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -283,162 +252,10 @@ Resources:
         - Key: Name
           Value: Web Security Group
 
-  # -------------------------------------------------------------------------
-  # EC2 WEB SERVERS - one per public subnet (Web Server 1 in public subnet 1,
-  # Web Server 2 in public subnet 2), identical settings, each with a public IP.
-  # The user data script runs once as root at first boot: it installs Apache,
-  # PHP and MariaDB, downloads the lab app and starts the web server.
-  # DependsOn the public default route so the instance has internet access
-  # (needed to download the app) as soon as it boots.
-  # -------------------------------------------------------------------------
-  WebServer1:
-    Type: AWS::EC2::Instance
-    DependsOn: PublicDefaultRoute
-    Properties:
-      ImageId: ami-0fef201115eefe936
-      InstanceType: t2.micro
-      IamInstanceProfile: !If [HasInstanceProfile, !Ref InstanceProfileName, !Ref "AWS::NoValue"]
-      NetworkInterfaces:
-        - DeviceIndex: "0"
-          SubnetId: !Ref PublicSubnet1
-          AssociatePublicIpAddress: true
-          GroupSet:
-            - !Ref WebSecurityGroup
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeSize: 8
-            VolumeType: gp3
-      UserData:
-        Fn::Base64: |
-          #!/bin/bash
-          set -ex
-          exec > >(tee /var/log/user-data.log) 2>&1
-          # Install Git and Python 3.11 (Amazon Linux 2023's default python3 is 3.9;
-          # 3.11 is a separate package and the venv module ships with it)
-          dnf install -y git python3.11 python3.11-pip
-          python3.11 -m ensurepip --upgrade || true
-          # Clone the app
-          git clone https://github.com/finnlimjc/Cloud-Computing-Stock-Comparison.git /opt/app
-          cd /opt/app
-          # Create the virtual environment and install dependencies inside it
-          python3.11 -m venv .venv
-          . .venv/bin/activate
-          pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
-          deactivate
-          # Run Streamlit on 0.0.0.0:8501 as a systemd service (restarts on reboot/crash)
-          cat > /etc/systemd/system/streamlit.service <<'EOF'
-          [Unit]
-          Description=Streamlit app
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          WorkingDirectory=/opt/app
-          ExecStart=/opt/app/.venv/bin/python -m streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
-          Restart=always
-          Environment=HOME=/root
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          systemctl daemon-reload
-          systemctl enable --now streamlit
-      Tags:
-        - Key: Name
-          Value: Web Server 1
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Team
-          Value: !Ref Team
-        - Key: CostCenter
-          Value: !Ref ProjectName
-
-  WebServer2:
-    Type: AWS::EC2::Instance
-    DependsOn: PublicDefaultRoute
-    Properties:
-      ImageId: ami-0fef201115eefe936
-      InstanceType: t2.micro
-      IamInstanceProfile: !If [HasInstanceProfile, !Ref InstanceProfileName, !Ref "AWS::NoValue"]
-      NetworkInterfaces:
-        - DeviceIndex: "0"
-          SubnetId: !Ref PublicSubnet2
-          AssociatePublicIpAddress: true
-          GroupSet:
-            - !Ref WebSecurityGroup
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeSize: 8
-            VolumeType: gp3
-      UserData:
-        Fn::Base64: |
-          #!/bin/bash
-          set -ex
-          exec > >(tee /var/log/user-data.log) 2>&1
-          # Install Git and Python 3.11 (Amazon Linux 2023's default python3 is 3.9;
-          # 3.11 is a separate package and the venv module ships with it)
-          dnf install -y git python3.11 python3.11-pip
-          python3.11 -m ensurepip --upgrade || true
-          # Clone the app
-          git clone https://github.com/finnlimjc/Cloud-Computing-Stock-Comparison.git /opt/app
-          cd /opt/app
-          # Create the virtual environment and install dependencies inside it
-          python3.11 -m venv .venv
-          . .venv/bin/activate
-          pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
-          deactivate
-          # Run Streamlit on 0.0.0.0:8501 as a systemd service (restarts on reboot/crash)
-          cat > /etc/systemd/system/streamlit.service <<'EOF'
-          [Unit]
-          Description=Streamlit app
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          WorkingDirectory=/opt/app
-          ExecStart=/opt/app/.venv/bin/python -m streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
-          Restart=always
-          Environment=HOME=/root
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          systemctl daemon-reload
-          systemctl enable --now streamlit
-      Tags:
-        - Key: Name
-          Value: Web Server 2
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Team
-          Value: !Ref Team
-        - Key: CostCenter
-          Value: !Ref ProjectName
-
 # ---------------------------------------------------------------------------
 # OUTPUTS - handy values shown on the stack's Outputs tab
 # ---------------------------------------------------------------------------
 Outputs:
-  WebServer1URL:
-    Description: Open this URL in a browser to see the Streamlit app on Web Server 1 (allow a few minutes after stack creation)
-    Value: !Sub "http://${WebServer1.PublicDnsName}:8501"
-  WebServer1PublicIp:
-    Description: Public IPv4 address of Web Server 1
-    Value: !GetAtt WebServer1.PublicIp
-  WebServer2URL:
-    Description: Open this URL in a browser to see the Streamlit app on Web Server 2 (allow a few minutes after stack creation)
-    Value: !Sub "http://${WebServer2.PublicDnsName}:8501"
-  WebServer2PublicIp:
-    Description: Public IPv4 address of Web Server 2
-    Value: !GetAtt WebServer2.PublicIp
   VpcId:
     Description: ID of stock-research-dashboard-vpc
     Value: !Ref LabVpc

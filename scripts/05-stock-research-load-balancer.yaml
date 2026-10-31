@@ -43,23 +43,19 @@ Parameters:
   WebSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
     Description: Web Security Group, used by the load balancer and the instances (and allowed into the database).
-  WebServer1Id:
-    Type: AWS::EC2::Instance::Id
-    Description: Web Server 1 from 03-stock-research-dashboard-vpc.yaml, registered in the target group.
-  WebServer2Id:
-    Type: AWS::EC2::Instance::Id
-    Description: Web Server 2 from 03-stock-research-dashboard-vpc.yaml, registered in the target group.
   InstanceProfileName:
     Type: String
     Default: Work-Role
     Description: >-
-      Instance profile of the existing role EC2InstanceRole (see
-      03-stock-research-dashboard-vpc.yaml). Without it the instances cannot read
+      Instance profile of the existing role EC2InstanceRole (the profile is named
+      Work-Role, not the role name), whose policies are added by
+      02-stock-research-ec2-role-policies.yaml. Without it the instances cannot read
       their settings from SSM or reach the notes bucket.
 
 Resources:
   # -------------------------------------------------------------------------
   # TARGET GROUP - where the load balancer sends requests: Streamlit on 8501.
+  # The Auto Scaling group registers its instances here.
   # Health check on "/" returns 200 once the Streamlit service is up.
   # Stickiness is required: Streamlit keeps each session (login, cached
   # analysis) in the memory of one server, and file uploads
@@ -78,11 +74,6 @@ Resources:
       VpcId: !Ref VpcId
       HealthCheckProtocol: HTTP
       HealthCheckPath: /
-      Targets:
-        - Id: !Ref WebServer1Id
-          Port: 8501
-        - Id: !Ref WebServer2Id
-          Port: 8501
       TargetGroupAttributes:
         - Key: stickiness.enabled
           Value: "true"
@@ -146,9 +137,9 @@ Resources:
 
   # -------------------------------------------------------------------------
   # LAUNCH TEMPLATE - the settings of every instance Auto Scaling launches.
-  # The sandbox only allows Amazon-provided AMIs, so instead of an AMI made from
-  # Web Server 1, each instance starts from Amazon Linux 2023 and installs the
-  # app with the same user data as Web Server 1. No subnet: Auto Scaling picks it.
+  # The sandbox only allows Amazon-provided AMIs, so instead of a custom AMI with
+  # the app baked in, each instance starts from Amazon Linux 2023 and installs the
+  # app with user data at first boot. No subnet: Auto Scaling picks it.
   # Detailed monitoring sends CPU metrics every minute, so scaling reacts faster.
   # -------------------------------------------------------------------------
   StockResearchLaunchTemplate:

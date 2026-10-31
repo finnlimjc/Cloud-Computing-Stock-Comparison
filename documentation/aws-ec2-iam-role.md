@@ -43,7 +43,7 @@ The same statement covers the dashboard's other parameters (see [aws-secrets-man
 - The version actions are needed because the bucket is versioned: they let the app read or permanently remove a specific version.
 - The bucket name is built the same way as in [01-stock-research-s3-bucket.yaml](../scripts/01-stock-research-s3-bucket.yaml), so it must stay in sync if that name changes.
 
-## Attaching the role to the web servers
+## Attaching the role to the instances
 
 An instance can only be given a role through an instance profile, and EC2 asks for the **instance profile name**, not the role name. The two can differ: `EC2InstanceRole`'s instance profile is `Work-Role` (shown as **Instance profile ARN** on the role's Summary panel in the IAM console). Passing the role name instead fails with `Invalid IAM Instance Profile name`. Check the profile name with:
 
@@ -51,23 +51,16 @@ An instance can only be given a role through an instance profile, and EC2 asks f
 aws iam list-instance-profiles-for-role --role-name EC2InstanceRole
 ```
 
-The VPC template's `InstanceProfileName` parameter defaults to `Work-Role`, and both web servers use that instance profile. Leave it empty to launch them without a role.
+The load balancer template's `InstanceProfileName` parameter defaults to `Work-Role`. It is set in the launch template, so every instance the Auto Scaling group launches gets that instance profile.
 
 1. Create the S3 bucket stack (`01-stock-research-s3-bucket.yaml`).
 2. Create the policy stack (`02-stock-research-ec2-role-policies.yaml`). Tick the IAM acknowledgment checkbox (CLI: `--capabilities CAPABILITY_IAM`).
-3. Create the VPC stack (`03-stock-research-dashboard-vpc.yaml`). `InstanceProfileName` is already `Work-Role` by default.
-
-An existing VPC stack created without the instance profile can be updated with **Use existing template** and `InstanceProfileName` set to `Work-Role`. Adding an instance profile to a running instance does not stop or replace it, so the web servers keep running during the update.
-
-## Tags
-
-Inline policies cannot be tagged, and the role is not owned by the stack, so this template adds no tags.
+3. Create the VPC and database stacks (`03` and `04`).
+4. Create the load balancer stack (`05-stock-research-load-balancer.yaml`). `InstanceProfileName` is already `Work-Role` by default.
 
 ## Sandbox vs production
 
 | Area | Sandbox (now) | Production |
 |---|---|---|
 | Role | Existing `EC2InstanceRole`, shared with anything else that uses it | A dedicated role and instance profile created by the template, so the dashboard's permissions are not mixed with other workloads |
-| SSM actions | `ssm:*` on `/work/*` | `ssm:GetParameters` on the Alpaca and `/stock-research/` settings parameters, and `ssm:PutParameter` on `/stock-research/seed/*` only. The dashboard never needs to change or delete its settings. |
-| SSM resource | Any Region and account (`*:*`) | This account and Region only |
 | Secrets store | SSM Parameter Store | AWS Secrets Manager with `secretsmanager:GetSecretValue` on the Alpaca secret |

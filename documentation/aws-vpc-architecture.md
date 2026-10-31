@@ -7,7 +7,7 @@
 
 ## Overview
 
-The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through the public address of the web servers, and upload their PDF notes to Amazon S3. The RDS database sits in the private subnets (see [aws-rds-database.md](aws-rds-database.md)).
+The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through a load balancer in the public subnets, which forwards them to the Auto Scaling instances in the private subnets (see [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md)). Documents are stored in Amazon S3, and the RDS database sits in the private subnets (see [aws-rds-database.md](aws-rds-database.md)).
 
 | Setting | Value |
 |---|---|
@@ -15,7 +15,7 @@ The stock research dashboard (a Streamlit app) runs in its own VPC, spread acros
 | Region | `us-east-1` (sandbox) |
 | VPC CIDR | `10.0.0.0/16` (65,536 IPs) |
 | Availability Zones | 2 (`us-east-1a`, `us-east-1b`) |
-| DNS support / hostnames | Both enabled (instances get a public DNS name) |
+| DNS support / hostnames | Both enabled |
 
 ## Region
 
@@ -24,7 +24,7 @@ The stock research dashboard (a Streamlit app) runs in its own VPC, spread acros
 | Sandbox | `us-east-1` (N. Virginia) | The sandbox only permits this Region. |
 | Production | `ap-southeast-1` (Singapore) | Which stocks the company researches is sensitive, and hosting data abroad may raise compliance issues. Keep data in Singapore. |
 
-The template uses `!GetAZs` and `${AWS::Region}`, so moving to Singapore needs no change except the AMI ID (AMI IDs are Region-specific) and the AZ suffix in the Name tags.
+The template uses `!GetAZs` and `${AWS::Region}`, so moving to Singapore needs no change except the AZ suffix in the Name tags. The AMI ID, which is Region-specific, is in the launch template of stack 05.
 
 ## Network layout
 
@@ -66,7 +66,6 @@ The Auto Scaling instances behind the load balancer ([scripts/05-stock-research-
 
 - A NAT Gateway only allows connections started from inside, so the private instances and the RDS database stay unreachable from the internet.
 - There is one NAT Gateway per AZ, and each private subnet has its own route table pointing at the NAT Gateway in its AZ. If one AZ fails, the instances in the other AZ keep their outbound access, matching the two-AZ Auto Scaling group. Traffic also stays within its AZ, so there are no cross-AZ data charges. The cost is two sets of hourly and per-GB NAT charges.
-- Web Server 1 and 2 are in public subnets and still use the Internet Gateway directly.
 
 ## Security
 
@@ -85,44 +84,11 @@ The Auto Scaling instances behind the load balancer ([scripts/05-stock-research-
 
 ### DB Security Group
 
-Created by [scripts/04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml). It allows only PostgreSQL (TCP 5432) from the Web Security Group, so only the web servers can reach the database. See [aws-rds-database.md](aws-rds-database.md#db-security-group).
+Created by [scripts/04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml). It allows only PostgreSQL (TCP 5432) from the Web Security Group, so only the Auto Scaling instances can reach the database. See [aws-rds-database.md](aws-rds-database.md#db-security-group).
 
 ## Compute
 
-Two identical EC2 instances, one in each public subnet, sharing the same Web Security Group. If one instance or AZ fails, the other keeps serving the dashboard.
-
-| Setting | Value |
-|---|---|
-| Instances | `Web Server 1` (Public 1, us-east-1a) and `Web Server 2` (Public 2, us-east-1b) |
-| Instance type | t2.micro |
-| AMI | Amazon Linux 2023 |
-| Storage | 8 GiB `gp3` |
-| Network | Auto-assigned public IPv4 |
-| Security group | Web Security Group |
-| Key pair | None (no SSH access needed) |
-| IAM instance profile | `Work-Role`, the instance profile of `EC2InstanceRole` (`InstanceProfileName` parameter). See [aws-ec2-iam-role.md](aws-ec2-iam-role.md). |
-| Python | 3.11 (`python3.11` package) |
-| App | Streamlit on `0.0.0.0:8501`|
-
-### Bootstrap (user data)
-
-On first boot each instance installs Git and Python 3.11 (the AMI's default `python3` is 3.9), clones the app from `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` into `/opt/app`, installs `requirements.txt` into a Python 3.11 virtual environment, and starts the Streamlit service. Allow a few minutes after the stack finishes.
-
-- The service runs `src/app.py` without `--local`, so the app uses RDS and S3 and reads its settings from SSM Parameter Store with the instance role. `use_instance_region` in `src/storage/parameters.py` reads the Region from the instance metadata, because boto3 does not, so no Region or keys are set on the servers. See [Running on AWS](../README.md#running-on-aws).
-- Until the database stack has written its parameters (`bucket-name`, `db-host`, `db-username`), the page shows a "Missing parameters" error. Refreshing after stack 04 finishes connects, with no reboot.
-- The repository is cloned only once. Rebooting does not pull newer code, so push to GitHub before creating this stack.
-
-### Tags
-
-Both instances carry the same tags; only `Name` differs.
-
-| Key | Value |
-|---|---|
-| Name | `Web Server 1` / `Web Server 2` |
-| Project | `stock-research-dashboard` (`ProjectName` parameter) |
-| Environment | `Prod` (`Environment` parameter) |
-| Team | `DevOps` (`Team` parameter) |
-| CostCenter | Same as Project (`ProjectName` parameter) |
+The VPC stack runs no EC2 instances itself. The dashboard runs on the Auto Scaling group's instances in the private subnets, launched from a launch template and reached through the load balancer, both created by [scripts/05-stock-research-load-balancer.yaml](../scripts/05-stock-research-load-balancer.yaml). Instance settings, bootstrap and tags are in [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md).
 
 ## Sandbox vs production
 
@@ -130,4 +96,4 @@ Both instances carry the same tags; only `Name` differs.
 |---|---|---|
 | Region | `us-east-1` | `ap-southeast-1` |
 | HTTP / Streamlit source | Anywhere-IPv4 | Company IP ranges only |
-| Instance entry point | Load balancer, plus the two web servers' public IPs | Load balancer only |
+| Instance entry point | Load balancer | Load balancer, with HTTPS |

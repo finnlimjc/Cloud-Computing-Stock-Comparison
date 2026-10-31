@@ -109,7 +109,7 @@ Only the private subnets are used, so the database has no route to or from the i
 | Inbound | TCP | 5432 (PostgreSQL) | `Web Security Group` | Permit PostgreSQL from web servers |
 | Outbound | All | All | `0.0.0.0/0` | AWS default |
 
-The source is the Web Security Group itself, not an IP range. Any instance in that group (both web servers, and any future ones) can connect, the rule keeps working when their IPs change, and nothing else can reach the database.
+The source is the Web Security Group itself, not an IP range. Any instance in that group (every instance the Auto Scaling group launches) can connect, the rule keeps working when their IPs change, and nothing else can reach the database.
 
 ## Connecting from the dashboard
 

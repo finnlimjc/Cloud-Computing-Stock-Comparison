@@ -6,18 +6,19 @@
 
 ## Overview
 
-An internet-facing Application Load Balancer (ALB) is the single public entry point to the dashboard. It spreads users across the two original web servers and an Auto Scaling group of 2 to 6 instances in the private subnets. Auto Scaling adds instances when the dashboard is busy and removes them when it is quiet, keeping the average CPU near 60%.
+An internet-facing Application Load Balancer (ALB) is the single public entry point to the dashboard. It spreads users across an Auto Scaling group of 2 to 6 instances in the private subnets, which are the only instances running the app. Auto Scaling adds instances when the dashboard is busy and removes them when it is quiet, keeping the average CPU near 60%.
 
 ```text
 User ── HTTP:80 ──> StockResearchELB (public subnets, both AZs)
                         │ forward, sticky cookie
                         v
                  StockResearchGroup (HTTP:8501)
-                   ├── Web Server 1 / Web Server 2 (public subnets)
-                   └── StockResearchAutoScalingGroup, 2 to 6 instances (private subnets)
-                              │ outbound only (git, pip, market data, SSM)
-                              v
-                      NAT Gateway in the same AZ
+                        │
+                        v
+                 StockResearchAutoScalingGroup, 2 to 6 instances (private subnets)
+                        │ outbound only (git, pip, market data, SSM)
+                        v
+                 NAT Gateway in the same AZ
 ```
 
 | Resource | Name |
@@ -41,16 +42,15 @@ User ── HTTP:80 ──> StockResearchELB (public subnets, both AZs)
    | `PublicSubnet1Id` / `PublicSubnet2Id` | `...-subnet-public1-us-east-1a` / `...-subnet-public2-us-east-1b` |
    | `PrivateSubnet1Id` / `PrivateSubnet2Id` | `...-subnet-private1-us-east-1a` / `...-subnet-private2-us-east-1b` |
    | `WebSecurityGroupId` | `Web Security Group` |
-   | `WebServer1Id` / `WebServer2Id` | `Web Server 1` / `Web Server 2` |
    | `InstanceProfileName` | `Work-Role` (default) |
 
-4. Open `LoadBalancerURL` from the stack's **Outputs** tab. The Auto Scaling group starts with no instances and launches 2. Each needs a few minutes to install the app before the target group marks it healthy. Until then, the ALB sends users to Web Server 1 and 2.
+4. Open `LoadBalancerURL` from the stack's **Outputs** tab. The Auto Scaling group starts with no instances and launches 2. Each needs a few minutes to install the app before the target group marks it healthy. Until the first one is healthy, the URL returns `503 Service Temporarily Unavailable`.
 
 ## Sandbox restrictions
 
 | Restriction | Effect |
 |---|---|
-| Only Amazon-provided Linux and Windows AMIs can be launched | The launch template cannot use an AMI made from Web Server 1. Each instance starts from Amazon Linux 2023 (`ami-0fef201115eefe936`) and installs the app with the same user data as Web Server 1. |
+| Only Amazon-provided Linux and Windows AMIs can be launched | The launch template cannot use a custom AMI with the app baked in. Each instance starts from Amazon Linux 2023 (`ami-0fef201115eefe936`) and installs the app with user data at first boot. |
 | Roles cannot be created | The instances use the existing `Work-Role` instance profile (see [aws-ec2-iam-role.md](aws-ec2-iam-role.md)). |
 | `us-east-1` only | The AMI ID is for `us-east-1` and must change for another Region. |
 
@@ -75,7 +75,7 @@ User ── HTTP:80 ──> StockResearchELB (public subnets, both AZs)
 | Protocol version | HTTP1 |
 | VPC | `stock-research-dashboard-vpc` |
 | Health check | HTTP `/`, default thresholds and interval |
-| Registered targets | Web Server 1, Web Server 2, and every instance the Auto Scaling group launches |
+| Registered targets | Every instance the Auto Scaling group launches (registered and deregistered automatically) |
 
 ### Stickiness
 
@@ -99,9 +99,16 @@ Without stickiness the ALB could send these requests to another instance, and up
 | IAM instance profile | `Work-Role`, to read settings from SSM and documents from S3 |
 | Detailed CloudWatch monitoring | Enabled: CPU metrics every minute instead of every 5, so scaling reacts faster (extra charge) |
 | Storage | AMI default (8 GiB `gp3`) |
-| User data | Same as Web Server 1: install Python 3.11, clone the app, install `requirements.txt`, run Streamlit on 8501 |
+| Python | 3.11 (`python3.11` package) |
+| App | Streamlit on `0.0.0.0:8501` |
 
-Each instance clones the repository when it launches, so newly launched instances run the latest code on GitHub, while older instances keep the code they started with. Push changes before scaling, or refresh the instances.
+### Bootstrap (user data)
+
+On first boot each instance installs Git and Python 3.11 (the AMI's default `python3` is 3.9), clones the app from `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` into `/opt/app`, installs `requirements.txt` into a Python 3.11 virtual environment, and starts Streamlit as a systemd service (restarted after a crash or reboot). This takes a few minutes.
+
+- The service runs `src/app.py` without `--local`, so the app uses RDS and S3 and reads its settings from SSM Parameter Store with the instance role. `use_instance_region` in `src/storage/parameters.py` reads the Region from the instance metadata, because boto3 does not, so no Region or keys are set on the instances. See [Running on AWS](../README.md#running-on-aws).
+- Until the database stack has written its parameters (`bucket-name`, `db-host`, `db-username`), the page shows a "Missing parameters" error. Refreshing after stack 04 finishes connects, with no reboot.
+- Each instance clones the repository once, when it launches. Newly launched instances run the latest code on GitHub, while older instances keep the code they started with. Push changes before scaling, or replace the instances with an instance refresh.
 
 ## Auto Scaling group
 
