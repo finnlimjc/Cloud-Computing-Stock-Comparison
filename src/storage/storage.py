@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.storage import auth
 from src.storage.database import DOCUMENT_TYPES, OWNER_SCOPES, VISIBILITIES, Database, DocumentSearch
-from src.storage.object_store import LocalObjectStore
+from src.storage.object_store import LocalObjectStore, S3ObjectStore
 
 # Filename building
 FILENAME_UNSAFE_PATTERN = re.compile(r"[^A-Za-z0-9-]+")
@@ -171,7 +171,7 @@ class DocumentStore:
     - objects: store holding each document's bytes under its object key
     """
     
-    def __init__(self, database:Database, objects:LocalObjectStore) -> None:
+    def __init__(self, database:Database, objects:LocalObjectStore | S3ObjectStore) -> None:
         self.database = database
         self.objects = objects
         self._dummy_hash = auth.hash_password("unused-password") #checked when a username is unknown so both failures take as long

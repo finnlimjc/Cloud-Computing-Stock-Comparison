@@ -77,6 +77,17 @@ LOCAL_DB_PATH = LOCAL_DATA_DIR / "app.db"
 LOCAL_OBJECTS_DIR = LOCAL_DATA_DIR / "objects"
 SEED_CREDENTIALS_PATH = LOCAL_DATA_DIR / "seed-credentials.txt"
 
+# AWS Storage (SSM Parameter Store names, see documentation/aws-secrets-manager.md)
+SSM_PREFIX = "/work/stock-research" #the sandbox role only allows parameters under /work/
+BUCKET_NAME_PARAMETER = f"{SSM_PREFIX}/bucket-name"
+DB_HOST_PARAMETER = f"{SSM_PREFIX}/db-host"
+DB_USERNAME_PARAMETER = f"{SSM_PREFIX}/db-username"
+DB_PASSWORD_PARAMETER = f"{SSM_PREFIX}/db-password"
+SEED_PARAMETER_PREFIX = f"{SSM_PREFIX}/seed"
+ALPACA_PARAMETERS = {"ALPACA_API_KEY": "/work/alpaca-api-key", "ALPACA_SECRET_KEY": "/work/alpaca-secret-key"}
+DB_PORT = 5432
+DB_NAME = "stockresearch"
+
 # Pages
 PAGE_KEY = "active_page"
 PAGE_NAMES = ["Stock Performance", "Company Metrics", "Financial Statements"]

@@ -2,7 +2,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import (Boolean, CheckConstraint, Column, Connection, Date, DateTime, ForeignKey, Index, Integer,
+from sqlalchemy import (URL, Boolean, CheckConstraint, Column, Connection, Date, DateTime, ForeignKey, Index, Integer,
                         MetaData, String, Table, create_engine, delete, event, exists, false, insert, inspect, or_, select, text, true, update)
 
 # Allowed column values
@@ -55,6 +55,11 @@ document_tickers = Table(
     Column("position", Integer, nullable=False), #keeps the order the tickers were entered in
     Index("ix_document_tickers_ticker", "ticker")
 )
+
+def postgres_url(host:str, port:int, database:str, username:str, password:str) -> URL:
+    """Build the URL of a PostgreSQL database such as RDS, escaping special characters in the password and requiring SSL."""
+    url = URL.create("postgresql+psycopg", username=username, password=password, host=host, port=port, database=database, query={"sslmode": "require"})
+    return url
 
 def _enable_sqlite_foreign_keys(dbapi_connection:object, connection_record:object) -> None:
     cursor = dbapi_connection.cursor()
@@ -125,11 +130,11 @@ class Database:
     Users and document metadata, through SQLAlchemy Core so the URL alone picks SQLite or PostgreSQL.
     
     Inputs:
-    - url: SQLAlchemy database URL, such as sqlite:///local-data/app.db
+    - url: SQLAlchemy database URL, such as sqlite:///local-data/app.db or postgres_url(...)
     """
     
-    def __init__(self, url:str) -> None:
-        self.engine = create_engine(url)
+    def __init__(self, url:str | URL) -> None:
+        self.engine = create_engine(url, pool_pre_ping=True) #RDS closes idle connections; pre-ping opens a fresh connection before a query runs
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", _enable_sqlite_foreign_keys) #SQLite ignores ON DELETE CASCADE without this
         metadata.create_all(self.engine)
