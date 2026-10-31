@@ -14,7 +14,7 @@ users 1 ──── * documents 1 ──── * document_tickers
 |---|---|---|---|
 | `user_id` | Integer, primary key | Auto-incrementing id of the user. | `1` |
 | `username` | String(32), unique, required | Login name. Must be unique, so creating a duplicate raises an `IntegrityError`. | `finn` |
-| `password_hash` | String(255), required | Hash of the password. The plain password is never stored. | `$2b$12$KIX...` |
+| `password_hash` | String(255), required | scrypt hash of the password, stored as `scrypt$n$r$p$salt$hash` (see [Password hashing](../README.md#password-hashing)). The plain password is never stored. | `scrypt$16384$8$1$3f9a...$7c2e...` |
 | `is_admin` | Boolean, required, defaults to false | Whether the user is an admin. An admin can see and delete every document, private or public. Sign-up always creates `false`; only the seed script (`src/storage/seed.py`) creates an admin. | `false` |
 | `created_at` | DateTime (timezone-aware), required | When the account was created, in UTC. | `2026-10-26 06:05:00+00:00` |
 
@@ -32,7 +32,7 @@ users 1 ──── * documents 1 ──── * document_tickers
 | `object_key` | String(512), unique | Location of the file in the object store. Empty until it is set in the same transaction that creates the row, because it contains the `document_id`. | `users/1/7/AAPL-vs-MSFT_overview_20261026-060500Z.md` |
 | `title` | String(255), required | Display name shown in the document list. | `AAPL vs MSFT` |
 | `document_type` | String(16), required | Kind of document. Must be one of `overview`, `single`, `statements` or `upload` (checked by `ck_documents_type`). | `overview` |
-| `visibility` | String(8), required | Who can see the document. `private` is visible only to the owner, and `public` is visible to everyone. Must be one of those two values (checked by `ck_documents_visibility`). | `private` |
+| `visibility` | String(8), required | Who can see the document. `private` is visible only to the owner, and `public` is visible to every logged-in user. Admins see both. Must be one of those two values (checked by `ck_documents_visibility`). | `private` |
 | `content_type` | String(64), required | Media type of the file, used when downloading or previewing it. | `text/markdown` |
 | `size_bytes` | Integer, required | Size of the file in bytes. | `18432` |
 | `sha256` | String(64), required | SHA-256 hash of the file contents, as hex. Used to check integrity. | `9f86d081884c7d659a2f...` |

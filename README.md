@@ -1,16 +1,55 @@
 # Cloud Computing Stock Comparison
 
-A Streamlit stock research dashboard, plus the AWS architecture designed to host it. Type up to five tickers (press Enter after each), choose a quick time range (or a custom date range), and click **Run**.
+A Streamlit stock research dashboard, plus the AWS architecture designed to host it.
 
-The dashboard supports single-stock and comparison modes, with five metric cards (latest price, return, max drawdown, current drawdown, Sharpe ratio) for one stock or a comparison table for several, recent news with summaries and a ticker filter, price/volatility/drawdown charts, and a calendar-year returns chart. Comparison prices are rebased to $100 at the start of their shared history; chart hover text also shows each stock's actual price. US recession periods are shaded using FRED's USREC series, with known recession dates as a fallback.
+## Features
 
-The **Company Metrics** tab uses the same tickers. It shows valuation (market cap, trailing and forward P/E, EV/EBITDA, dividend yield) and a financials table: pick a metric to see every fiscal year the companies share, in USD billions at the latest exchange rate, with a trend sparkline and CAGR. Below that are a business-model radar (pick the fiscal year and which companies to draw; an expander explains how each ratio is scored 0-100 and lets you edit the low and high reference values), analyst sentiment (latest buy/hold/sell split or the buy-share trend over recent monthly snapshots), and analyst price-target ranges relative to the current price.
+### Running an analysis
 
-The **Financial Statements** tab shows the annual income statement, balance sheet, and cash flow statement of one company; when several tickers were run, pick the company with the pills at the top. Figures are Yahoo Finance's reported values in the company's reporting currency, in millions (per-share figures to two decimals, share counts in millions), with negatives in brackets. Each statement follows a standard layout (for example revenue, operating expenses, and net income), with bold subtotals and double-underlined totals, and all three tables share the same fiscal-year columns so they line up. Companies report different items, so a row is shown only when the company has it, and every remaining Yahoo row is listed under **Other line items** below each statement. Those extra rows are mostly breakdowns or restatements of figures already in the totals (for example, Accounts Receivable and Other Receivables make up Receivables), so they should not be added to them.
+- Type up to **five tickers** in the sidebar, pressing Enter after each. One ticker shows a single stock; more compare them.
+- Pick a time range: **1 year**, **5 years**, **10 years**, **20 years** (default), or **Custom** (any dates within the last 20 years, at least 60 days apart).
+- Click **Run**. The results are split across three tabs that share the same tickers.
 
-The available time ranges are **1 year**, **5 years**, **10 years**, **20 years** (default), and **Custom** (any start and end date within the last 20 years, at least 60 days apart). Charts and metrics use daily closing prices; the **Latest price** card refreshes every 60 seconds while the US market is open.
+### Stock Performance tab
+
+- **Metrics:** latest price, return over the period, max drawdown, current drawdown and Sharpe ratio. Shown as cards for one stock, or as a comparison table for several. Hover the help icons for what each one means.
+- **Live price:** the **Latest price** refreshes every 60 seconds while the US market is open.
+- **Price, volatility and drawdown chart**, from daily closing prices:
+  - In comparisons, prices are rebased to $100 at the start of their shared history so growth can be compared fairly. Hovering also shows each stock's actual price.
+  - US recessions are shaded, using FRED's USREC series, with known recession dates as a fallback.
+- **Return by calendar year** chart. Years only partly inside the range are marked with `*`.
+- **Latest news** with short summaries and how long ago each was published, filterable by ticker. Uses the Alpaca News API when keys are set, otherwise Yahoo Finance.
+
+### Company Metrics tab
+
+- **Valuation:** market cap, trailing and forward P/E, EV/EBITDA and dividend yield.
+- **Key Financials:** pick a metric (revenue, gross profit, net income, total assets, total liabilities, cash, or operating cash flow) to see every fiscal year the companies share, in USD billions at the latest exchange rate, with a trend sparkline and CAGR.
+- **Business-model radar:** five ratios (gross margin, ROE, asset turnover, safety ratio, FCF margin), each scored 0-100.
+  - Pick the fiscal year and, for three or more companies, which ones to draw.
+  - **How the score is calculated** explains each ratio and lets you edit its low and high reference values.
+- **Analyst sentiment:** the latest buy/hold/sell split, or the trend in the share of buy ratings over recent monthly snapshots.
+- **Analyst price targets:** low-to-high target ranges compared with the current price.
+
+### Financial Statements tab
+
+- The annual **income statement**, **balance sheet** and **cash flow statement** of one company. When several tickers were run, pick the company at the top.
+- Figures are Yahoo Finance's reported values in the company's reporting currency:
+  - in millions, except per-share figures (two decimals);
+  - negatives in brackets;
+  - bold subtotals and double-underlined totals.
+- Each statement follows a standard layout (for example revenue, then operating expenses, then net income). All three tables share the same fiscal-year columns, so they line up.
+- A row appears only if the company reports it. Every remaining Yahoo row is listed under **Other line items** below each statement.
+  - These extra rows mostly break down or restate figures already in the totals (for example, Accounts Receivable and Other Receivables make up Receivables), so do not add them to the totals.
+
+### Accounts and saved documents
+
+- Sign up or log in to **save an analysis** as a Markdown report, **upload** your own Markdown or PDF notes, and browse **Previous Analyses** with search and filters.
+- Each document is **private** or **public**, and an `admin` account can manage every document.
+- See [Save and View Analyses](#save-and-view-analyses) for details.
 
 ## Setup
+
+### Local
 
 1. Create a virtual environment and install the packages.
 
@@ -43,6 +82,37 @@ The available time ranges are **1 year**, **5 years**, **10 years**, **20 years*
    - `--local` stores accounts and saved documents on this computer (see [Storage](#storage)). Options for the app go after `--`; anything before it is for Streamlit.
    - Without `--local`, the app uses AWS storage (RDS and S3) and reads its settings from SSM Parameter Store. This is how the EC2 web servers run it (see [Running on AWS](#running-on-aws)). On a computer without AWS credentials it only shows an error.
 
+### AWS
+
+The stacks are deployed in `us-east-1` with CloudFormation. The web servers get their code from GitHub and their settings from SSM Parameter Store, so nothing is copied onto them by hand.
+
+1. **Push the code to GitHub.** Each web server clones `github.com/finnlimjc/Cloud-Computing-Stock-Comparison` once, at first boot, and never pulls again.
+
+2. **Create the SecureString parameters** in CloudShell (or **Systems Manager → Parameter Store → Create parameter**):
+
+   ```bash
+   aws ssm put-parameter --name /work/stock-research/db-password --type SecureString --value lab-password
+   aws ssm put-parameter --name /work/alpaca-api-key --type SecureString --value your-alpaca-api-key
+   aws ssm put-parameter --name /work/alpaca-secret-key --type SecureString --value your-alpaca-secret-key
+   ```
+
+   - The database password must equal stack 04's `DBMasterPassword` (default `lab-password`).
+   - The Alpaca keys are optional. Without them, news falls back to Yahoo Finance.
+   - CloudFormation cannot create SecureStrings, which is why these are made by hand. See [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md).
+
+3. **Create the stacks in order** under **CloudFormation → Create stack → Upload a template file**, keeping the default parameters unless noted:
+
+   | Stack | Template | Notes |
+   |---|---|---|
+   | 01 | [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml) | Private S3 bucket for document files. |
+   | 02 | [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml) | Adds the SSM and S3 policies to the existing `EC2InstanceRole`. |
+   | 03 | [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml) | VPC and the two web servers, using the `Work-Role` instance profile. |
+   | 04 | [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml) | RDS database and the String parameters. Pick stack 03's VPC, the two private subnets (`...-subnet-private1-us-east-1a` and `...-subnet-private2-us-east-1b`) and `Web Security Group`. |
+
+4. **Open the app.** Allow a few minutes after stack 03 finishes for the servers to install and start, then open `WebServer1URL` or `WebServer2URL` from stack 03's **Outputs** tab (`http://<public-dns>:8501`). Until stack 04 finishes, the page shows "Could not open storage: Missing parameters ...". Refresh once it is done.
+
+5. **Log in as `admin`.** Read its generated password with `aws ssm get-parameter --name /work/stock-research/seed/admin --with-decryption` or look it up in Parameter Store. (see [Demo accounts and the admin](#demo-accounts-and-the-admin)).
+
 ## Save and View Analyses
 
 Anyone can run analyses. To save documents, create an account in the sidebar (**Sign up**) or **Log in**. Usernames are 3 to 32 letters, numbers, `-` or `_` (not case-sensitive), and passwords need at least 8 characters. Refreshing the browser logs you out.
@@ -54,7 +124,9 @@ After running a single-stock or comparison analysis, choose **Private** or **Pub
 
 To add your own notes, open **Upload document**. Pick a Markdown (`.md`) or PDF file of up to 20 MB, and optionally give it a title (defaults to the file name), tickers, and visibility. It is saved as `Title_upload_<time>.md` or `.pdf`.
 
-**Previous Analyses** lists your own documents and everyone's public ones, newest first. To narrow the list, type in **Search**: every word must appear in the title, file name, owner's username or a ticker, ignoring case (for example `aapl overview`). Under **Filters** you can also keep only documents covering every selected ticker, of chosen types, or owned by you or by others. The line under the selector shows the tickers, type, time range, creation time, owner, and visibility. Click **Show** to open the document in a pop-up: Markdown is rendered as formatted text, and PDFs open in a viewer. Both have a **Download** button. On your own documents you can also switch between private and public (**Make public** / **Make private**) or **Delete** them.
+**Previous Analyses** lists your own documents and everyone's public ones, newest first. To narrow the list, type in **Search**: every word must appear in the title, file name, owner's username or a ticker, ignoring case (for example `aapl overview`). 
+
+Under **Filters** you can also keep only documents covering every selected ticker, of chosen types, or owned by you or by others. The line under the selector shows the tickers, type, time range, creation time, owner, and visibility. Click **Show** to open the document in a pop-up: Markdown is rendered as formatted text, and PDFs open in a viewer. Both have a **Download** button. On your own documents you can also switch between private and public (**Make public** / **Make private**) or **Delete** them.
 
 ### Demo accounts and the admin
 
@@ -63,7 +135,7 @@ The first time the app starts, it creates four accounts: `admin`, `alice`, `bob`
 - **Local (`--local`):** appended to `local-data/seed-credentials.txt` (git-ignored, like the rest of `local-data/`).
 - **AWS:** saved as an encrypted SecureString in SSM Parameter Store, named `/work/stock-research/seed/<username>`, because the web servers have no SSH access. Open **Systems Manager → Parameter Store → My parameters**, click the name and choose **Show decrypted value**, or run `aws ssm get-parameter --name /work/stock-research/seed/admin --with-decryption` in CloudShell.
 
-Accounts that already exist are skipped, so restarting the app creates nothing new and never changes a password. On AWS both web servers seed the same database. If both try to create an account at the same moment, the second one skips it, and the password saved is the one belonging to the account. The code is in `src/storage/seed.py`.
+On AWS both web servers seed the same database. If both try to create an account at the same moment, the second one skips it.
 
 `admin` is the only admin. An admin:
 
@@ -75,7 +147,7 @@ Signing up always creates a normal user, and there is no screen for promoting a 
 
 ### How timestamps are shown
 
-- News providers send publication times in ISO 8601 UTC, such as `2026-10-24T07:28:35Z` (`T` separates the date from the time, `Z` means UTC). All timestamps are converted based on your computer's local time.
+- News providers send publication times in ISO 8601 UTC, such as `2026-10-24T07:28:35Z` (`T` separates the date from the time, `Z` means UTC). Exact times are converted to the time zone of the computer running the app (your computer with `--local`, the EC2 web server on AWS), not the visitor's browser.
 - **Dashboard news cards** show a relative age such as `9h ago` or `Yesterday`, counted from the current time, so it is the same in any time zone. Articles older than a week show their date.
 - **Saved reports** show exact times with the UTC offset, such as `2026-10-24 15:28:35 UTC+08:00`. This applies to the **Created** line and to each news item. A time that cannot be read is saved unchanged.
 - **Saved filenames** use UTC with a trailing `Z`, such as `20261024-072835Z`, so they match the `created_at` value stored in the database whatever the server's time zone.
@@ -94,11 +166,24 @@ Saved documents are split between a **database** and an **object store**. The da
 
 ### Database tables
 
-- **users**: `user_id`, `username` (unique, lower case), `password_hash`, `is_admin`, `created_at`. Passwords are never stored. They are hashed with scrypt, using a random salt per user, and stored as `scrypt$n$r$p$salt$hash` so the cost can be raised later.
-- **documents**: `document_id`, `owner_id`, `filename`, `object_key`, `title`, `document_type` (`overview`, `single`, `statements` or `upload`), `visibility` (`private` or `public`), `content_type`, `size_bytes`, `sha256`, `start_date`, `end_date`, `range_label`, `created_at`. Indexed by owner and by visibility, each with creation time, which covers the two queries the app runs: "my documents" and "public documents".
-- **document_tickers**: one row per ticker a document covers, with its position, so documents can later be filtered by ticker.
+The database has three tables. A user owns many documents, and a document covers many tickers:
 
-The tables are defined with SQLAlchemy Core in `src/storage/database.py` and use only portable SQL, so moving to RDS means changing the database URL, not the queries.
+```text
+users 1 ──── * documents 1 ──── * document_tickers
+```
+
+| Table | One row per | Key columns |
+|---|---|---|
+| `users` | Account | `username` (unique, lower case), `password_hash` (scrypt, see [Password hashing](#password-hashing)), `is_admin` |
+| `documents` | Saved or uploaded document | `owner_id`, `object_key` (where the file is, see [Filenames and object keys](#filenames-and-object-keys)), `document_type`, `visibility`, `sha256`, the analysed date range |
+| `document_tickers` | Ticker a document covers | `document_id` and `ticker` (together the primary key), `position` (the order the tickers were entered) |
+
+- **Rules in the database:** check constraints allow only `private`/`public` visibility and the four document types (`overview`, `single`, `statements`, `upload`), so a bug in the app cannot save an invalid value.
+- **Deletes cascade:** deleting a user deletes their documents, and deleting a document deletes its ticker rows.
+- **Indexes match the queries the app runs:** owner + creation time ("my documents"), visibility + creation time ("public documents"), both already newest first, and ticker (the **Tickers** search filter).
+- **Portable:** the tables are defined with SQLAlchemy Core in `src/storage/database.py` and use only portable SQL, so the same code runs on SQLite locally and PostgreSQL on RDS. Only the database URL changes.
+
+Every column, type, constraint and index, with examples, is described in [documentation/database-tables.md](documentation/database-tables.md).
 
 ### Password hashing
 
@@ -121,16 +206,6 @@ Passwords are hashed with [scrypt](https://en.wikipedia.org/wiki/Scrypt), using 
 
 These are the commonly used values for interactive logins, and one hash takes roughly 50 to 100 ms. `N`, `r`, `p` and the salt are stored with each hash (`scrypt$n$r$p$salt$hash`), and `verify_password` re-hashes with the values stored in that row. Raising the settings later affects only new passwords. Existing users can still log in, and nothing has to be migrated at once. The hash is not re-hashed with the new settings at login yet.
 
-**Multiple users logging in at the same time**
-
-- Streamlit runs each browser session in its own thread. A hash keeps no shared state: it uses only its own arguments, a fresh salt and its own memory, so logins never need a lock and cannot affect each other.
-- `hashlib.scrypt` releases Python's global interpreter lock while it computes, so simultaneous logins run in parallel on separate CPU cores. A login waiting on a hash does not block other users from using the app.
-- Each hash needs about 16 MB while it runs, and frees it when done (about 0.1 seconds later). Memory use grows only with logins that overlap in time: 10 overlapping logins use about 160 MB at once, and 100 use about 1.6 GB. Sign-ups and logins are short, so on a small dashboard this overlap is rare.
-- Raising `N` to 2^15 or more needs a larger `maxmem` argument in `hashlib.scrypt`, because the default limit is 32 MB.
-- Logging in with a username that does not exist still hashes a dummy password, so an unknown username and a wrong password take the same time and cannot be told apart.
-
-**Not covered yet:** there is no limit on login attempts. Because every attempt costs about 16 MB and some CPU time, a script sending many attempts at once could slow down or exhaust a small server, and it could also guess passwords. Add a per-username or per-IP rate limit before exposing the app publicly.
-
 ### Filenames and object keys
 
 Each file's name and location are built only from its database row, so a row points to exactly one file, and any file path leads back to its row:
@@ -144,7 +219,7 @@ example:    users/3/42/AAPL-vs-MSFT_overview_20261026-060500Z.md
 
 - The `document_id` folder keeps keys unique, even when two documents are saved in the same second.
 - Visibility is **not** part of the key. Making a document public or private only updates its row, never moves the file, so the S3 bucket can stay fully private with the app as the only gatekeeper.
-- The row and the file are saved in one database transaction that commits only after the file is written, so a failed save leaves neither behind. Deleting removes the row and the file together.
+- The row and the file are saved in one database transaction that commits only after the file is written, so a failed save leaves neither behind. Deleting removes the row and the file together. On S3 the bucket is versioned, so a deleted file can still be recovered for 30 days (see [documentation/aws-s3-bucket.md](documentation/aws-s3-bucket.md)).
 - Object keys are checked so they cannot point outside the storage folder.
 
 ### Running on AWS
@@ -153,7 +228,7 @@ The dashboard pages are the same on AWS. Only the storage behind them changes, c
 
 - `S3ObjectStore` in `src/storage/object_store.py` has the same `put`, `get` and `delete` methods as `LocalObjectStore`. S3 errors are raised as `OSError`, so the sidebar shows them like local file errors.
 - `Database` connects to RDS through `postgres_url` in `src/storage/database.py`: the `psycopg` driver, SSL required, and `pool_pre_ping` so connections RDS has closed are replaced. The app creates the tables on first start.
-- `ParameterStore` in `src/storage/parameters.py` reads the settings below with the EC2 instance role, so no keys are stored on the servers. boto3 does not read the Region from the instance by itself, so `use_instance_region` looks it up in the instance metadata first (unless `AWS_DEFAULT_REGION` is set).
+- `ParameterStore` in `src/storage/parameters.py` reads the settings below with the EC2 instance role, so no keys are stored on the servers. boto3 does not read the Region from the instance by itself, so `use_instance_region` looks it up in the instance metadata first (unless `AWS_DEFAULT_REGION` or `~/.aws/config` already sets one). It also writes the demo account passwords back to Parameter Store.
 
 | Parameter | Type | Created by | Used for |
 |---|---|---|---|
@@ -166,9 +241,7 @@ The dashboard pages are the same on AWS. Only the storage behind them changes, c
 
 CloudFormation cannot create SecureString parameters, so only those are created by hand. How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
 
-**Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ...". A failed start is not cached, so refreshing the page after stack 04 finishes connects, with no reboot.
-
-**Deploying new code:** each web server clones this repository once, at first boot, and rebooting does not pull new code. Push the code to GitHub before creating stack 03. Stack 03 cannot be deleted while the database sits in its subnets, so picking up later code means deleting stack 04 (a final snapshot is kept) and then stack 03, and creating both again. The new database starts empty unless it is restored from that snapshot.
+**Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04`. The web servers may start before the database exists. Until stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ...".
 
 ## Project structure
 
@@ -180,7 +253,7 @@ CloudFormation cannot create SecureString parameters, so only those are created 
 │   │   ├── config.py           # Constants, cache TTLs, storage paths, and page CSS
 │   │   ├── loaders.py          # Cached data loaders
 │   │   ├── dates.py            # Market hours and date-range resolution
-│   │   ├── analysis.py         # Builds the stock analysis result and summary
+│   │   ├── analysis.py         # Builds the stock analysis result, summary, and saved-report sections
 │   │   ├── auth.py             # Log in, sign up, and log out controls
 │   │   ├── sidebar.py          # Analysis form, saving, uploads, and saved documents
 │   │   ├── performance.py      # Stock Performance tab
@@ -188,7 +261,7 @@ CloudFormation cannot create SecureString parameters, so only those are created 
 │   │   └── financial_statements.py  # Financial Statements tab
 │   ├── plots/                  # Plotly charts
 │   │   ├── theme.py            # Shared palette, fonts, and title helpers
-│   │   ├── price_plots.py      # Price, volatility, and recession dashboard
+│   │   ├── price_plots.py      # Price, volatility, and drawdown dashboard with recessions; calendar-year returns
 │   │   └── company_plots.py    # Radar, analyst sentiment, and price-target charts
 │   ├── data/                   # Market data loading
 │   │   ├── price_ratings.py    # Yahoo Finance prices, statements, ratings, and FX rates
@@ -206,6 +279,7 @@ CloudFormation cannot create SecureString parameters, so only those are created 
 │       ├── fundamentals.py     # Financial statement comparisons and business-model scores
 │       ├── statements.py       # Statement layouts and line-item units for the Financial Statements tab
 │       └── analyst.py          # Analyst rating periods and buy/hold/sell sentiment
+├── .streamlit/config.toml  # Streamlit theme colours and font
 ├── notebooks/              # Original exploratory notebooks (filings, news, stock_price_ratings)
 ├── documentation/          # AWS architecture and database write-ups
 ├── assets/                 # Architecture diagrams
@@ -223,7 +297,8 @@ CloudFormation cannot create SecureString parameters, so only those are created 
 The dashboard is designed to run in its own VPC on AWS. These documents describe the design:
 
 - [AWS IAM access architecture](documentation/aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
-- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for the PDF notes. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
-- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys from SSM and manage notes in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
+- [AWS Secrets Manager](documentation/aws-secrets-manager.md): The keys and the RDS password are stored as SecureString parameters in SSM Parameter Store, created by hand in the console before deploying.
+- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for saved Markdown reports and uploaded documents. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
+- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys and storage settings from SSM, write the demo account passwords there, and manage documents in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
 - [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
 - [AWS RDS database](documentation/aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).
