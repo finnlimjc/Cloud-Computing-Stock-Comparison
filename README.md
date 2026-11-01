@@ -14,6 +14,8 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
 ### Stock Performance tab
 
+![alt text](assets/stock-performance.png)
+
 - **Metrics:** latest price, return over the period, max drawdown, current drawdown and Sharpe ratio. Shown as cards for one stock, or as a comparison table for several. Hover the help icons for what each one means.
 - **Live price:** the **Latest price** refreshes every 60 seconds while the US market is open.
 - **Price, volatility and drawdown chart**, from daily closing prices:
@@ -24,6 +26,8 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 
 ### Company Metrics tab
 
+![alt text](assets/comparison.png)
+
 - **Valuation:** market cap, trailing and forward P/E, EV/EBITDA and dividend yield.
 - **Key Financials:** pick a metric (revenue, gross profit, net income, total assets, total liabilities, cash, or operating cash flow) to see every fiscal year the companies share, in USD billions at the latest exchange rate, with a trend sparkline and CAGR.
 - **Business-model radar:** five ratios (gross margin, ROE, asset turnover, safety ratio, FCF margin), each scored 0-100.
@@ -33,6 +37,8 @@ A Streamlit stock research dashboard, plus the AWS architecture designed to host
 - **Analyst price targets:** low-to-high target ranges compared with the current price.
 
 ### Financial Statements tab
+
+![alt text](assets/financial-statement.png)
 
 - The annual **income statement**, **balance sheet** and **cash flow statement** of one company. When several tickers were run, pick the company at the top.
 - Figures are Yahoo Finance's reported values in the company's reporting currency:
