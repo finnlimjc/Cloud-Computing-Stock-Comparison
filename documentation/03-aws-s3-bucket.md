@@ -4,13 +4,13 @@
 
 ## Overview
 
-The dashboard stores the contents of every saved document in a single private S3 bucket: the Markdown reports it generates and the Markdown or PDF notes users upload. Each document's metadata and access rules are in the [RDS database](aws-rds-database.md). The web servers reach the bucket through the VPC's S3 Gateway Endpoint (see [aws-vpc-architecture.md](aws-vpc-architecture.md)), so the traffic stays on the AWS network.
+The dashboard stores the contents of every saved document in a single private S3 bucket: the Markdown reports it generates and the Markdown or PDF notes users upload. Each document's metadata and access rules are in the [RDS database](04-aws-rds-database.md). The web servers reach the bucket through the VPC's S3 Gateway Endpoint (see [aws-vpc-architecture.md](02-aws-vpc-architecture.md)), so the traffic stays on the AWS network.
 
 ## How the dashboard uses it
 
-- The bucket name is read from the `/work/stock-research/bucket-name` parameter (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)). The database stack ([04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml)) writes that parameter, building the name the same way as this template.
+- The bucket name is read from the `/work/stock-research/bucket-name` parameter (see [aws-secrets-manager.md](08-aws-secrets-manager.md#dashboard-parameters)). The database stack ([04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml)) writes that parameter, building the name the same way as this template.
 - `S3ObjectStore` in `src/storage/object_store.py` calls `PutObject`, `GetObject` and `DeleteObject` with the EC2 instance role.
-- Object keys follow `users/{owner_id}/{document_id}/{filename}`, which is why the role's policy only allows the `users/` prefix (see [aws-ec2-iam-role.md](aws-ec2-iam-role.md)).
+- Object keys follow `users/{owner_id}/{document_id}/{filename}`, which is why the role's policy only allows the `users/` prefix (see [aws-ec2-iam-role.md](07-aws-ec2-iam-role.md)).
 - Deleting a document in the dashboard adds a delete marker (see [Versioning](#versioning)), so the file can still be recovered for 30 days.
 
 | Setting | Value |

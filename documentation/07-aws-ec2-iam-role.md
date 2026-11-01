@@ -6,7 +6,7 @@
 
 ## Overview
 
-The web servers need AWS permissions for two things: reading the Alpaca API keys and the dashboard's settings from SSM Parameter Store, and writing the demo account passwords there (see [aws-secrets-manager.md](aws-secrets-manager.md)); and saving, reading and deleting documents in the S3 bucket (see [aws-s3-bucket.md](aws-s3-bucket.md)). The database needs no IAM permission, because the dashboard logs in with a password and the DB Security Group controls network access. An IAM role attached through an instance profile gives the instances short-lived credentials automatically, so no access keys or `secrets.env` file are stored on them.
+The web servers need AWS permissions for two things: reading the Alpaca API keys and the dashboard's settings from SSM Parameter Store, and writing the demo account passwords there (see [aws-secrets-manager.md](08-aws-secrets-manager.md)); and saving, reading and deleting documents in the S3 bucket (see [aws-s3-bucket.md](03-aws-s3-bucket.md)). The database needs no IAM permission, because the dashboard logs in with a password and the DB Security Group controls network access. An IAM role attached through an instance profile gives the instances short-lived credentials automatically, so no access keys or `secrets.env` file are stored on them.
 
 | Setting | Value |
 |---|---|
@@ -26,7 +26,7 @@ The template uses `AWS::IAM::RolePolicy`, which only needs `iam:PutRolePolicy` o
 
 The Alpaca keys are stored as `SecureString` parameters under `/work/` (the only path the sandbox allows). They are encrypted with the AWS managed `aws/ssm` KMS key, whose key policy already lets any principal in the account decrypt through SSM, so no `kms:Decrypt` permission is needed.
 
-The same statement covers the dashboard's other parameters (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)):
+The same statement covers the dashboard's other parameters (see [aws-secrets-manager.md](08-aws-secrets-manager.md#dashboard-parameters)):
 
 - `ssm:GetParameters` reads the bucket name and the database host, username and password.
 - `ssm:PutParameter` writes the demo accounts' generated passwords to `/work/stock-research/seed/<username>`. Encrypting with `aws/ssm` needs no extra KMS permission either.

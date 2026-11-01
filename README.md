@@ -106,7 +106,7 @@ The stacks are deployed in `us-east-1` with CloudFormation. The web servers get 
 
    - The database password must equal stack 04's `DBMasterPassword` (default `lab-password`).
    - The Alpaca keys are optional. Without them, news falls back to Yahoo Finance.
-   - CloudFormation cannot create SecureStrings, which is why these are made by hand. See [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md).
+   - CloudFormation cannot create SecureStrings, which is why these are made by hand. See [documentation/aws-secrets-manager.md](documentation/08-aws-secrets-manager.md).
 
 3. **Create the stacks in order** under **CloudFormation → Create stack → Upload a template file**, keeping the default parameters unless noted:
 
@@ -192,7 +192,7 @@ users 1 ──── * documents 1 ──── * document_tickers
 - **Indexes match the queries the app runs:** owner + creation time ("my documents"), visibility + creation time ("public documents"), both already newest first, and ticker (the **Tickers** search filter).
 - **Portable:** the tables are defined with SQLAlchemy Core in `src/storage/database.py` and use only portable SQL, so the same code runs on SQLite locally and PostgreSQL on RDS. Only the database URL changes.
 
-Every column, type, constraint and index, with examples, is described in [documentation/database-tables.md](documentation/database-tables.md).
+Every column, type, constraint and index, with examples, is described in [documentation/database-tables.md](documentation/05-database-tables.md).
 
 ### Password hashing
 
@@ -228,7 +228,7 @@ example:    users/3/42/AAPL-vs-MSFT_overview_20261026-060500Z.md
 
 - The `document_id` folder keeps keys unique, even when two documents are saved in the same second.
 - Visibility is **not** part of the key. Making a document public or private only updates its row, never moves the file, so the S3 bucket can stay fully private with the app as the only gatekeeper.
-- The row and the file are saved in one database transaction that commits only after the file is written, so a failed save leaves neither behind. Deleting removes the row and the file together. On S3 the bucket is versioned, so a deleted file can still be recovered for 30 days (see [documentation/aws-s3-bucket.md](documentation/aws-s3-bucket.md)).
+- The row and the file are saved in one database transaction that commits only after the file is written, so a failed save leaves neither behind. Deleting removes the row and the file together. On S3 the bucket is versioned, so a deleted file can still be recovered for 30 days (see [documentation/aws-s3-bucket.md](documentation/03-aws-s3-bucket.md)).
 - Object keys are checked so they cannot point outside the storage folder.
 
 ### Running on AWS
@@ -248,7 +248,7 @@ The dashboard pages are the same on AWS. Only the storage behind them changes, c
 | `/work/alpaca-api-key`, `/work/alpaca-secret-key` | SecureString | You, before deploying | Alpaca news. Missing keys fall back to Yahoo news. |
 | `/work/stock-research/seed/<username>` | SecureString | The app | Passwords of the [demo accounts](#demo-accounts-and-the-admin) |
 
-CloudFormation cannot create SecureString parameters, so only those are created by hand. How to create them is in [documentation/aws-secrets-manager.md](documentation/aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
+CloudFormation cannot create SecureString parameters, so only those are created by hand. How to create them is in [documentation/aws-secrets-manager.md](documentation/08-aws-secrets-manager.md). The database port (`5432`) and name (`stockresearch`) are constants in `src/dashboard/config.py`.
 
 **Deployment order:** create the SecureString parameters, then the stacks `01` → `02` → `03` → `04` → `05`. If the instances start before stack 04 has written its parameters, the page shows "Could not open storage: Missing parameters ..." until it has.
 
@@ -305,10 +305,10 @@ CloudFormation cannot create SecureString parameters, so only those are created 
 
 The dashboard is designed to run in its own VPC on AWS. These documents describe the design:
 
-- [AWS IAM access architecture](documentation/aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
-- [AWS Secrets Manager](documentation/aws-secrets-manager.md): The keys and the RDS password are stored as SecureString parameters in SSM Parameter Store, created by hand in the console before deploying.
-- [AWS S3 bucket](documentation/aws-s3-bucket.md): private, versioned bucket for saved Markdown reports and uploaded documents. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
-- [AWS EC2 IAM role](documentation/aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys and storage settings from SSM, write the demo account passwords there, and manage documents in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
-- [AWS VPC architecture](documentation/aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
-- [AWS RDS database](documentation/aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).
-- [AWS Load Balancer and Auto Scaling](documentation/aws-load-balancer-auto-scaling.md): internet-facing Application Load Balancer with a sticky target group on port 8501, and an Auto Scaling group of 2 to 6 instances in the private subnets that tracks 60% average CPU. Built from [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml).
+- [AWS IAM access architecture](documentation/01-aws-iam-access-architecture.md): IAM Identity Center groups and permission sets. This was designed but not built, because the AWS sandbox does not allow IAM Identity Center or AWS Organizations.
+- [AWS Secrets Manager](documentation/08-aws-secrets-manager.md): The keys and the RDS password are stored as SecureString parameters in SSM Parameter Store, created by hand in the console before deploying.
+- [AWS S3 bucket](documentation/03-aws-s3-bucket.md): private, versioned bucket for saved Markdown reports and uploaded documents. Built from [scripts/01-stock-research-s3-bucket.yaml](scripts/01-stock-research-s3-bucket.yaml).
+- [AWS EC2 IAM role](documentation/07-aws-ec2-iam-role.md): policies on the existing `EC2InstanceRole` that let the web servers read the Alpaca keys and storage settings from SSM, write the demo account passwords there, and manage documents in S3. Built from [scripts/02-stock-research-ec2-role-policies.yaml](scripts/02-stock-research-ec2-role-policies.yaml).
+- [AWS VPC architecture](documentation/02-aws-vpc-architecture.md): two-AZ VPC for the Streamlit web servers and S3 uploads. Built from the CloudFormation template [scripts/03-stock-research-dashboard-vpc.yaml](scripts/03-stock-research-dashboard-vpc.yaml).
+- [AWS RDS database](documentation/04-aws-rds-database.md): Single-AZ PostgreSQL `db.t3.micro` in the private subnets, reachable only from the Web Security Group, with the rationale for a burstable class. Built from [scripts/04-stock-research-database.yaml](scripts/04-stock-research-database.yaml).
+- [AWS Load Balancer and Auto Scaling](documentation/06-aws-load-balancer-auto-scaling.md): internet-facing Application Load Balancer with a sticky target group on port 8501, and an Auto Scaling group of 2 to 6 instances in the private subnets that tracks 60% average CPU. Built from [scripts/05-stock-research-load-balancer.yaml](scripts/05-stock-research-load-balancer.yaml).

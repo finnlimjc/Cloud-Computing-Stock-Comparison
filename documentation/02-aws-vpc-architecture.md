@@ -7,7 +7,7 @@
 
 ## Overview
 
-The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through a load balancer in the public subnets, which forwards them to the Auto Scaling instances in the private subnets (see [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md)). Documents are stored in Amazon S3, and the RDS database sits in the private subnets (see [aws-rds-database.md](aws-rds-database.md)).
+The stock research dashboard (a Streamlit app) runs in its own VPC, spread across two Availability Zones for robustness. Users reach the dashboard through a load balancer in the public subnets, which forwards them to the Auto Scaling instances in the private subnets (see [aws-load-balancer-auto-scaling.md](06-aws-load-balancer-auto-scaling.md)). Documents are stored in Amazon S3, and the RDS database sits in the private subnets (see [aws-rds-database.md](04-aws-rds-database.md)).
 
 | Setting | Value |
 |---|---|
@@ -80,15 +80,15 @@ The Auto Scaling instances behind the load balancer ([scripts/05-stock-research-
 - **No SSH (port 22) rule.** Users sign in through the dashboard by opening the public address, and nobody needs shell access to the servers.
 - **HTTP is open to Anywhere-IPv4 in the sandbox** because the school's IP ranges are unknown. "My IP" would lock out students whose IP differs from the author's.
 - **Production:** restrict ports 80/8501 to the company's IP ranges, and give the load balancer its own security group so the instances accept 8501 only from it.
-- Port 8501 is where Streamlit listens. Port 80 is used by the load balancer's listener, which shares this security group (see [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md)).
+- Port 8501 is where Streamlit listens. Port 80 is used by the load balancer's listener, which shares this security group (see [aws-load-balancer-auto-scaling.md](06-aws-load-balancer-auto-scaling.md)).
 
 ### DB Security Group
 
-Created by [scripts/04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml). It allows only PostgreSQL (TCP 5432) from the Web Security Group, so only the Auto Scaling instances can reach the database. See [aws-rds-database.md](aws-rds-database.md#db-security-group).
+Created by [scripts/04-stock-research-database.yaml](../scripts/04-stock-research-database.yaml). It allows only PostgreSQL (TCP 5432) from the Web Security Group, so only the Auto Scaling instances can reach the database. See [aws-rds-database.md](04-aws-rds-database.md#db-security-group).
 
 ## Compute
 
-The VPC stack runs no EC2 instances itself. The dashboard runs on the Auto Scaling group's instances in the private subnets, launched from a launch template and reached through the load balancer, both created by [scripts/05-stock-research-load-balancer.yaml](../scripts/05-stock-research-load-balancer.yaml). Instance settings, bootstrap and tags are in [aws-load-balancer-auto-scaling.md](aws-load-balancer-auto-scaling.md).
+The VPC stack runs no EC2 instances itself. The dashboard runs on the Auto Scaling group's instances in the private subnets, launched from a launch template and reached through the load balancer, both created by [scripts/05-stock-research-load-balancer.yaml](../scripts/05-stock-research-load-balancer.yaml). Instance settings, bootstrap and tags are in [aws-load-balancer-auto-scaling.md](06-aws-load-balancer-auto-scaling.md).
 
 ## Sandbox vs production
 

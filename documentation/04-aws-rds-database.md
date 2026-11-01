@@ -6,7 +6,7 @@
 
 ## Overview
 
-The dashboard stores users and document metadata (see [database-tables.md](database-tables.md)) in an Amazon RDS for PostgreSQL instance. It sits in the VPC's two private subnets (see [aws-vpc-architecture.md](aws-vpc-architecture.md)), has no public IP, and only accepts connections from the web servers. The file contents live in the [S3 bucket](aws-s3-bucket.md).
+The dashboard stores users and document metadata (see [database-tables.md](05-database-tables.md)) in an Amazon RDS for PostgreSQL instance. It sits in the VPC's two private subnets (see [aws-vpc-architecture.md](02-aws-vpc-architecture.md)), has no public IP, and only accepts connections from the web servers. The file contents live in the [S3 bucket](03-aws-s3-bucket.md).
 
 | Setting | Value |
 |---|---|
@@ -45,7 +45,7 @@ The sandbox limits RDS to Aurora, MySQL, PostgreSQL and MariaDB; nano, micro, sm
 | Deployment | Multi-AZ DB instance (primary + standby in another AZ) | Single-AZ | Multi-AZ is not supported. |
 | Storage type | `gp3` | `gp2` | Only `gp2` is supported. |
 | Maximum storage threshold | 1000 GiB | 100 GiB | Storage is capped at 100 GB. |
-| Credentials management | Managed in AWS Secrets Manager | Self managed (`main` / `lab-password`) | Secrets Manager is disabled in the sandbox (see [aws-secrets-manager.md](aws-secrets-manager.md)). |
+| Credentials management | Managed in AWS Secrets Manager | Self managed (`main` / `lab-password`) | Secrets Manager is disabled in the sandbox (see [aws-secrets-manager.md](08-aws-secrets-manager.md)). |
 | Enhanced Monitoring | Off | Off | Not supported; it must stay unchecked. |
 
 **Production:** use Multi-AZ so a standby in the other AZ takes over if the primary fails, `gp3` storage, and let RDS manage the master password in Secrets Manager.
@@ -59,7 +59,7 @@ The sandbox limits RDS to Aurora, MySQL, PostgreSQL and MariaDB; nano, micro, sm
 | Credentials management | Self managed |
 | Database authentication | Password authentication |
 
-These are test credentials for the sandbox only, so they are documented here and set as parameter defaults. The dashboard reads the username from `/work/stock-research/db-username`, which this stack writes from `DBMasterUsername`, and the password from `/work/stock-research/db-password`, which is created by hand because CloudFormation cannot create SecureStrings (see [aws-secrets-manager.md](aws-secrets-manager.md#dashboard-parameters)). That password must equal `DBMasterPassword`.
+These are test credentials for the sandbox only, so they are documented here and set as parameter defaults. The dashboard reads the username from `/work/stock-research/db-username`, which this stack writes from `DBMasterUsername`, and the password from `/work/stock-research/db-password`, which is created by hand because CloudFormation cannot create SecureStrings (see [aws-secrets-manager.md](08-aws-secrets-manager.md#dashboard-parameters)). That password must equal `DBMasterPassword`.
 
 ## Instance class
 
@@ -123,7 +123,7 @@ The web servers find and log in to the database through Parameter Store:
 
 - `postgres_url` in `src/storage/database.py` builds the SQLAlchemy URL `postgresql+psycopg://...?sslmode=require`. `psycopg` is the PostgreSQL driver in `requirements.txt`. RDS for PostgreSQL 18 rejects unencrypted connections by default (`rds.force_ssl = 1`), so SSL is required explicitly.
 - The engine uses `pool_pre_ping`, so a connection that RDS has closed while the dashboard sat idle is replaced instead of failing the next query.
-- The tables are created by the dashboard on its first start (`metadata.create_all`), and existing tables are left alone. The schema is described in [database-tables.md](database-tables.md).
+- The tables are created by the dashboard on its first start (`metadata.create_all`), and existing tables are left alone. The schema is described in [database-tables.md](05-database-tables.md).
 - Only the Web Security Group can reach port 5432, so the database cannot be opened from a laptop or CloudShell outside the VPC.
 
 ### Parameters for the dashboard

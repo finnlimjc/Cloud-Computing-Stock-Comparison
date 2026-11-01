@@ -51,7 +51,7 @@ User ── HTTP:80 ──> StockResearchELB (public subnets, both AZs)
 | Restriction | Effect |
 |---|---|
 | Only Amazon-provided Linux and Windows AMIs can be launched | The launch template cannot use a custom AMI with the app baked in. Each instance starts from Amazon Linux 2023 (`ami-0fef201115eefe936`) and installs the app with user data at first boot. |
-| Roles cannot be created | The instances use the existing `Work-Role` instance profile (see [aws-ec2-iam-role.md](aws-ec2-iam-role.md)). |
+| Roles cannot be created | The instances use the existing `Work-Role` instance profile (see [aws-ec2-iam-role.md](07-aws-ec2-iam-role.md)). |
 | `us-east-1` only | The AMI ID is for `us-east-1` and must change for another Region. |
 
 ## Load balancer
@@ -124,7 +124,7 @@ On first boot each instance installs Git and Python 3.11 (the AMI's default `pyt
 | Health check type | EC2 (default) |
 | Notifications | None |
 
-- **Private subnets:** the instances have no public IP and can only be reached through the load balancer. They reach the internet through the NAT Gateway in their AZ (see [aws-vpc-architecture.md](aws-vpc-architecture.md#nat-gateways)).
+- **Private subnets:** the instances have no public IP and can only be reached through the load balancer. They reach the internet through the NAT Gateway in their AZ (see [aws-vpc-architecture.md](02-aws-vpc-architecture.md#nat-gateways)).
 - **Minimum 2:** one instance per AZ at all times, so the dashboard keeps running if one AZ fails.
 - **Maximum 6:** caps the cost of a traffic spike.
 
